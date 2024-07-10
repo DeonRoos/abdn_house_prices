@@ -59,8 +59,8 @@ ggplot(df) +
 # The AI MaCHiNE LeARniNg model -------------------------------------------
 m1 <- gam(price ~ 
             te(lon, lat, k = 15, bs = "cr") +
+            te(sqmt, rooms, k = 5, bs = "cr") +
             type +
-            sqmt * rooms +
             baths +
             epc +
             tax,
@@ -81,6 +81,14 @@ df$diff <- scales::comma(df$price - df$expect)
 df$over <- ifelse(df$price > df$upp, "Overpriced", 
                   ifelse(df$price < df$low, "Underpriced", 
                          "Fairly priced"))
+
+# House criteria ----------------------------------------------------------
+
+df$viewing <- ifelse(df$over != "Overpriced" & # Can't be over priced
+                       df$price <= 250000 &    # Below help2 buy ISA threshold
+                       df$sqmt > 100 &         # Not tiny
+                       df$rooms > 3,           # Enough rooms for offices etc
+                     "View", "Meh")
 
 # Leaflet map -------------------------------------------------------------
 
@@ -113,7 +121,6 @@ abdn_map <- leaflet(df) %>%
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df$house, "</b>",
       "<hr>",
-      "<br><b>View suggestion:</b> ", df$viewing,
       "<br><b>Pricing:</b> ", df$over,
       "<br><b>Asking Price:</b> £", scales::comma(df$price), " (", abs(round(df$diffn / 1000, digits = 0)), "k",
       ifelse(round(df$diffn / 1000, digits = 0) < 0, " under expected)", ifelse(round(df$diffn / 1000, digits = 0) > 0, " over expected)", ")")),
@@ -139,15 +146,6 @@ abdn_map <- leaflet(df) %>%
 abdn_map
 
 saveWidget(abdn_map, here::here("output", file = "abdn_homes_pricing.html"), selfcontained = TRUE)
-
-
-# House criteria ----------------------------------------------------------
-
-df$viewing <- ifelse(df$over != "Overpriced" & # Can't be over priced
-                       df$price <= 250000 &    # Below help2 buy ISA threshold
-                       df$sqmt > 85 &         # Not tiny
-                       df$rooms > 3,           # Enough rooms for offices etc
-                     "View", "Meh")
 
 # Leaflet map data prep ---------------------------------------------------
 
@@ -209,6 +207,7 @@ abdn_map <- leaflet() %>%
     data = df_meh,
     lng = ~lon, lat = ~lat,
     icon = ~ novisit[viewing],
+    label = ~ house,
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df_meh$house, "</b>",
@@ -350,6 +349,7 @@ prds$fit + 1.96 * prds$se.fit
 # £240k (n = 175)
 # £246k (n = 201)
 # £233k [£208k-£257k] (n = 235)
+# £229k [£204k-£254k] (n = 237)
 
 # Square meters -----------------------------------------------------------
 
@@ -359,6 +359,7 @@ nu_data <- data.frame(
   type = "detached",
   epc = "c",
   tax = "c",
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = median(df$living),
@@ -379,6 +380,59 @@ ggplot() +
   labs(y = "Asking price",
        x = "Square meters")
 
+# Rooms ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  lat = median(df$lat),
+  lon = median(df$lon),
+  type = "detached",
+  epc = "c",
+  tax = "c",
+  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
+  beds = median(df$beds),
+  baths = median(df$baths),
+  living = median(df$living),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+ggplot() +
+  geom_point(data = df, aes(x = rooms, y = price)) +
+  geom_hline(yintercept = 250000, linetype = 2) +
+  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
+  geom_line(data = nu_data, aes(x = rooms, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Rooms")
+
+# Interaction ----------------------------------------------------------------
+
+nu_data <- expand.grid(
+  lat = median(df$lat),
+  lon = median(df$lon),
+  type = "detached",
+  epc = "c",
+  tax = "c",
+  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
+  beds = median(df$beds),
+  baths = median(df$baths),
+  living = median(df$living),
+  sqmt = seq(min(df$sqmt), max(df$sqmt), length.out = 25)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+
+ggplot() +
+  geom_raster(data = nu_data, aes(x = rooms, y = sqmt, fill = fit)) +
+  scale_fill_viridis_c(option = "magma") +
+  labs(y = "Square meters",
+       x = "Rooms",
+       fill = "Expected\nprice")
 
 # House type --------------------------------------------------------------
 
@@ -386,6 +440,7 @@ nu_data <- data.frame(
   lat = median(df$lat), 
   lon = median(df$lon),
   type = c("semi", "detached", "terrace"),
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = median(df$living),
@@ -414,6 +469,7 @@ nu_data <- data.frame(
   type = "detached",
   epc = "c",
   tax = "c",
+  rooms = median(df$rooms),
   beds = seq(min(df$beds), max(df$beds), length.out = 25),
   baths = median(df$baths),
   living = median(df$living),
@@ -442,6 +498,7 @@ nu_data <- data.frame(
   type = "detached",
   epc = "c",
   tax = "c",
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = seq(min(df$living), max(df$living), length.out = 25),
@@ -470,6 +527,7 @@ nu_data <- expand.grid(
   type = "detached",
   epc = "c",
   tax = "c",
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = median(df$living),
@@ -481,9 +539,14 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
+nu_data$fit[exclude.too.far(
+  nu_data$lat, nu_data$lon,
+  df$lat, df$lon,
+  dist = 0.1)] <- NA
+
 ggplot() +
   geom_raster(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
-  scale_fill_viridis_c(option = "magma", labels = scales::comma) +
+  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitude",
        y = "Latitude",
        fill = "Expected\nprice")
@@ -496,6 +559,7 @@ nu_data <- data.frame(
   type = "detached",
   epc = unique(df$epc),
   tax = "c",
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = median(df$living),
@@ -523,6 +587,7 @@ nu_data <- data.frame(
   type = "detached",
   epc = "c",
   tax = unique(df$tax),
+  rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
   living = median(df$living),
@@ -545,6 +610,8 @@ ggplot() +
 
 # Predicted versus response -----------------------------------------------
 
+sig <- sigma(m1)
+
 ggplot(df) +
   geom_point(aes(x = expect, y = price, colour = over), size = 3) +
   geom_abline(intercept = 0, slope = 1) +
@@ -565,4 +632,9 @@ ggplot(df) +
   scale_y_continuous(limits = c(NA,NA), labels = scales::comma) +
   scale_x_continuous(limits = c(NA,NA), labels = scales::comma)
 
-
+ggplot(df) +
+  geom_point(aes(x = diffn, y = price, colour = viewing, size = viewing)) +
+  geom_vline(xintercept = 0) +
+  geom_rect(ymin = 180000, ymax =  250000, xmin = min(df$diffn), xmax = 0, linetype = 2, fill = "transparent", colour = "black") +
+  scale_y_continuous(limits = c(NA,NA), labels = scales::comma) +
+  scale_x_continuous(limits = c(NA,NA), labels = scales::comma)
