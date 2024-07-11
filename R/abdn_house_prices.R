@@ -12,8 +12,8 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 
 # Code to check if house has been added -----------------------------------
 # When doing data entry
-house <- "6 Mundurno Road"
-df[df$house == house,]#
+house <- "85 Berryden Gardens"
+df[df$house == house,]
 
 # Remove duplicates -------------------------------------------------------
 df <- df[!duplicated(df),]
@@ -332,7 +332,7 @@ gratia::draw(m1)
 dream_house <- data.frame(
   lat = 57.15483899436254,
   lon = -2.269886390197508,
-  type = "semi",
+  type = "detached",
   beds = 3,
   living = 1,
   rooms = 4,
@@ -348,8 +348,11 @@ prds$fit - 1.96 * prds$se.fit
 prds$fit + 1.96 * prds$se.fit
 # £240k (n = 175)
 # £246k (n = 201)
-# £233k [£208k-£257k] (n = 235)
-# £229k [£204k-£254k] (n = 237)
+# £233k [£208k-£257k] (n = 235) Semi
+# £229k [£204k-£254k] (n = 237) Semi
+# £226k [£202k-£250k] (n = 261) Semi
+# £236k [£212k-£259k] (n = 261) Detached
+# £236k [£212k-£260k] (n = 271) Detached
 
 # Square meters -----------------------------------------------------------
 
@@ -427,9 +430,14 @@ nu_data <- expand.grid(
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data$fit <- prds$fit
 
+nu_data$fit[exclude.too.far(
+  nu_data$rooms, nu_data$sqmt,
+  df$rooms, df$sqmt,
+  dist = 0.1)] <- NA
+
 ggplot() +
   geom_raster(data = nu_data, aes(x = rooms, y = sqmt, fill = fit)) +
-  scale_fill_viridis_c(option = "magma") +
+  scale_fill_viridis_c(option = "magma", na.value = "transparent", labels = scales::comma) +
   labs(y = "Square meters",
        x = "Rooms",
        fill = "Expected\nprice")
@@ -546,7 +554,10 @@ nu_data$fit[exclude.too.far(
 
 ggplot() +
   geom_raster(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
+  geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
+  coord_sf() +
   labs(x = "Longitude",
        y = "Latitude",
        fill = "Expected\nprice")
@@ -572,10 +583,10 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 ggplot() +
-  geom_jitter(data = df, aes(x = epc, y = price), width = 0.1, alpha = 0.1) +
+  #geom_jitter(data = df, aes(x = epc, y = price), width = 0.1, alpha = 0.1) +
   geom_errorbar(data = nu_data, aes(x = epc, y = fit, ymin = low, ymax = upp), width = 0.1) +
   geom_point(data = nu_data, aes(x = epc, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  #scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "EPC")
 
