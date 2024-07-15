@@ -4,6 +4,9 @@ library(mgcv)          # For non-linear models
 library(leaflet)
 library(lubridate)
 library(htmlwidgets)
+library(geosphere)
+library(httr)
+library(jsonlite)
 theme_set(theme_minimal())
 
 df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXXe2Rh-pY6boQEA1zR1nsus/edit?usp=sharing",
@@ -12,49 +15,12 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 
 # Code to check if house has been added -----------------------------------
 # When doing data entry
-house <- "85 Berryden Gardens"
+house <- "71 Boswell Road"
 df[df$house == house,]
 
 # Remove duplicates -------------------------------------------------------
 df <- df[!duplicated(df),]
 df$rooms <- df$beds + df$living
-
-summary(df)
-
-ggplot(df) +
-  geom_jitter(aes(x = sqmt, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_jitter(aes(x = rooms, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_jitter(aes(x = beds, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_jitter(aes(x = living, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_jitter(aes(x = baths, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_tile(aes(x = beds, y = living, fill = price)) +
-  scale_fill_viridis_c(option = "magma", limits = c(0,NA), labels = scales::comma)
-
-ggplot(df) +
-  geom_jitter(aes(x = epc, y = price),
-              height = 0, width = 0.15) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma)
-
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
 m1 <- gam(price ~ 
@@ -82,13 +48,70 @@ df$over <- ifelse(df$price > df$upp, "Overpriced",
                   ifelse(df$price < df$low, "Underpriced", 
                          "Fairly priced"))
 
+abdn_uni <- c(57.168010390142236, -2.106429897150815)
+
+calculate_distance <- function(lat, lon, abdn_uni) {
+  point <- c(lat, lon)
+  dist <- distHaversine(point, abdn_uni)
+  return(dist)
+}
+
+df$distance <- mapply(calculate_distance, df$lat, df$lon, MoreArgs = list(abdn_uni = abdn_uni))
+df$uni_dist <- ifelse(df$distance <= 25000, "Close Enough", "Too Far")
+
+# Commute time ------------------------------------------------------------
+
+api_key <- "AIzaSyDZKT-rGxUv21PxNFO4elG-n4m31gOqn_M"
+origin <- "57.168010390142236,-2.106429897150815" # abdn uni
+bioss <- "57.13310577362852,-2.158274358135975"
+get_commute_time <- function(lat, lon, api_key, origin) {
+  url <- paste0(
+    "https://maps.googleapis.com/maps/api/distancematrix/json?units=metric",
+    "&origins=", origin,
+    "&destinations=", lat, ",", lon,
+    "&mode=driving",
+    "&key=", api_key
+  )
+  
+  # Make the API request
+  response <- GET(url)
+  
+  # Parse the response
+  content <- fromJSON(content(response, "text"), flatten = TRUE)
+  
+  # Extract commute time (in seconds)
+  commute_time <- content$rows$elements[[1]]$duration.value
+  
+  return(commute_time)
+}
+
+df$commute_time <- mapply(get_commute_time, df$lat, df$lon, MoreArgs = list(api_key = api_key, origin = origin))
+df$commute_time_minutes <- df$commute_time / 60
+
+df$commute_time_bioss <- mapply(get_commute_time, df$lat, df$lon, MoreArgs = list(api_key = api_key, origin = bioss))
+df$commute_time_bioss_minutes <- df$commute_time_bioss / 60
+
+ggplot(df[df$lat > 57.08645329329407 & df$lat < 57.23073295950531 &
+            df$lon > -2.278825150318679 & df$lon < 2.0547631408365854,]) +
+  geom_point(aes(x = lon, y = lat, colour = commute_time_minutes)) +
+  scale_colour_viridis_c()
+
+ggplot(df) +
+  geom_point(aes(x = lon, y = lat, colour = commute_time_bioss_minutes)) +
+  scale_colour_viridis_c()
+
 # House criteria ----------------------------------------------------------
 
-df$viewing <- ifelse(df$over != "Overpriced" & # Can't be over priced
-                       df$price <= 250000 &    # Below help2 buy ISA threshold
-                       df$sqmt > 100 &         # Not tiny
-                       df$rooms > 3,           # Enough rooms for offices etc
+df$viewing <- ifelse(df$over != "Overpriced" &                 # Can't be over priced
+                       df$price <= 250000 &                    # Below help2 buy ISA threshold
+                       df$sqmt > 100 &                         # Not tiny
+                       df$house != "terrace" &                 # Not a terrace
+                       df$commute_time_minutes < 20 &          # Within 20 minute drive of uni
+                       #df$commute_time_bioss_minutes < 20 &    # Within 20 minute drive of uni
+                       df$rooms > 4,                           # Enough rooms for offices etc
                      "View", "Meh")
+
+table(df$viewing)
 
 # Leaflet map -------------------------------------------------------------
 
@@ -120,6 +143,8 @@ abdn_map <- leaflet(df) %>%
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df$house, "</b>",
+      "<br><b>Commute to Aberdeen Uni:</b> ", round(df$commute_time_minutes), " minutes",
+      "<br><b>Commute to BioSS:</b> ", round(df$commute_time_bioss_minutes), " minutes",
       "<hr>",
       "<br><b>Pricing:</b> ", df$over,
       "<br><b>Asking Price:</b> £", scales::comma(df$price), " (", abs(round(df$diffn / 1000, digits = 0)), "k",
@@ -179,6 +204,8 @@ abdn_map <- leaflet() %>%
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df_view$house, "</b>",
+      "<br><b>Commute to Aberdeen Uni:</b> ", round(df_view$commute_time_minutes), " minutes",
+      "<br><b>Commute to BioSS:</b> ", round(df_view$commute_time_bioss_minutes), " minutes",
       "<hr>",
       "<br><b>View suggestion:</b> ", df_view$viewing,
       "<br><b>Pricing:</b> ", df_view$over,
@@ -211,6 +238,8 @@ abdn_map <- leaflet() %>%
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df_meh$house, "</b>",
+      "<br><b>Commute to Aberdeen Uni:</b> ", round(df_meh$commute_time_minutes), " minutes",
+      "<br><b>Commute to BioSS:</b> ", round(df_meh$commute_time_bioss_minutes), " minutes",
       "<hr>",
       "<br><b>View suggestion:</b> ", df_meh$viewing,
       "<br><b>Pricing:</b> ", df_meh$over,
@@ -289,6 +318,7 @@ abdn_map <- leaflet() %>%
     data = df_meh,
     lng = ~lon, lat = ~lat,
     icon = ~ novisit[viewing],
+    label = ~ house,
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<b>", df_meh$house, "</b>",
@@ -353,6 +383,8 @@ prds$fit + 1.96 * prds$se.fit
 # £226k [£202k-£250k] (n = 261) Semi
 # £236k [£212k-£259k] (n = 261) Detached
 # £236k [£212k-£260k] (n = 271) Detached
+# £241k [£219k-£262k] (n = 296) Detached
+# £240k [£219k-£262k] (n = 299) Detached
 
 # Square meters -----------------------------------------------------------
 
@@ -550,12 +582,47 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 nu_data$fit[exclude.too.far(
   nu_data$lat, nu_data$lon,
   df$lat, df$lon,
-  dist = 0.1)] <- NA
+  dist = 0.08)] <- NA
 
 ggplot() +
   geom_raster(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
   geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
   geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
+  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
+  coord_sf() +
+  labs(x = "Longitude",
+       y = "Latitude",
+       fill = "Expected\nprice")
+
+# Aberdeen ----------------------------------------------------------------
+
+nu_data <- expand.grid(
+  lat = seq(57.08645329329407, 57.23073295950531, length.out = 50),
+  lon = seq(-2.278825150318679, -2.0547631408365854, length.out = 50),
+  type = "detached",
+  epc = "c",
+  tax = "c",
+  rooms = median(df$rooms),
+  beds = median(df$beds),
+  baths = median(df$baths),
+  living = median(df$living),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+nu_data$fit[exclude.too.far(
+  nu_data$lat, nu_data$lon,
+  df$lat, df$lon,
+  dist = 0.1)] <- NA
+
+ggplot() +
+  geom_raster(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
+  #geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   coord_sf() +
   labs(x = "Longitude",
