@@ -649,3 +649,34 @@ ggplot(df) +
   geom_rect(ymin = 180000, ymax =  250000, xmin = min(df$diffn), xmax = 0, linetype = 2, fill = "transparent", colour = "black") +
   scale_y_continuous(limits = c(NA,NA), labels = scales::comma) +
   scale_x_continuous(limits = c(NA,NA), labels = scales::comma)
+
+
+
+
+
+
+
+dad_house <- data.frame(
+  lat = 57.11189827438473, 
+  lon = -2.1969265159532463,
+  type = "semi",
+  beds = 7,
+  living = 3,
+  rooms = 10,
+  baths = 2,
+  epc = "c",
+  tax = "f",
+  sqmt = seq(from = 100, to = 350, by = 10)
+)
+
+prds <- predict(m1, newdata = dad_house, se.fit = TRUE)
+dad_house$fit <- prds$fit
+dad_house$low <- prds$fit - 1.96 * prds$se.fit
+dad_house$upp <- prds$fit + 1.96 * prds$se.fit
+
+ggplot(dad_house, aes(x = sqmt, y = fit, ymin = low, ymax = upp)) +
+  geom_ribbon(alpha = 0.3) +
+  geom_line() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = "Square meters",
+       y = "Predicted Roos house price")
