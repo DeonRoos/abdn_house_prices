@@ -24,6 +24,7 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 # df[df$house == house,]
 
 # Remove duplicates -------------------------------------------------------
+df$house[duplicated(df$house)]
 df <- df[!duplicated(df$house),]
 df$rooms <- df$beds + df$living
 
@@ -129,47 +130,6 @@ df$viewing <- ifelse((
     df$rooms >= 3,                                      # Enough rooms for offices etc
   "View", "Meh")
 
-table(df$viewing)
-
-# Dream house prediction -----------------------------------------------------
-
-dream_house <- data.frame(
-  lat = 57.15483899436254,
-  lon = -2.269886390197508,
-  type = "detached",
-  rooms = 4,
-  baths = 2,
-  epc = "c",
-  tax = "d",
-  sqmt = 100,
-  days_since = as.numeric(ymd(Sys.Date()) - min(ymd(df$date))) # Today
-)
-
-prds <- predict(m1, newdata = dream_house, se.fit = TRUE)
-paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
-       round(prds$fit - 1.96 * prds$se.fit, digits = -3)/1000, "k-£",
-       round(prds$fit + 1.96 * prds$se.fit, digits = -3)/1000, "k] (n = ",
-       nrow(df), ") ", stringr::str_to_title(dream_house$type)
-       )
-# £240k (n = 175)
-# £246k (n = 201)
-# £233k [£208k-£257k] (n = 235) Semi
-# £229k [£204k-£254k] (n = 237) Semi
-# £226k [£202k-£250k] (n = 261) Semi
-# £236k [£212k-£259k] (n = 261) Detached
-# £236k [£212k-£260k] (n = 271) Detached
-# £241k [£219k-£262k] (n = 296) Detached
-# £240k [£219k-£262k] (n = 299) Detached
-# £244k [£222k-£266k] (n = 301) Detached
-# £240k [£220k-£261k] (n = 332) Detached
-# £239k [£220k-£259k] (n = 385) Detached
-# £240k [£220k-£259k] (n = 383) Detached (Removed stupid multi-million £ mansion)
-# £243k [£222k-£263k] (n = 383) Detached (Including time in model)
-# £253k [£226k-£281k] (n = 385) Detached (with GP, k = 20 for space)
-# £240k [£215k-£264k] (n = 385) Detached (dropped baths to 2 and sqmt to 100)
-# £241k [£216k-£265k] (n = 394) Detached
-# £242k [£218k-£267k] (n = 410) Detached
-# £242k [£218k-£267k] (n = 412) Detached
 
 ## Time --------------------------------------------------------------------
 
@@ -911,6 +871,7 @@ abdn_map_view_today <- leaflet() %>%
   )
 
 abdn_map_view_today
+saveWidget(abdn_map_view_today, here::here("output", file = "abdn_viewing_today.html"), selfcontained = TRUE)
 
 
 ## Leaflet map today -----------------------------------------------------
