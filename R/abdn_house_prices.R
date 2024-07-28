@@ -5,6 +5,7 @@
 library(googlesheets4) # For loading in the data from google sheets
 library(ggplot2)       # For data visualiations
 library(mgcv)          # For non-linear models
+library(dplyr)
 library(leaflet)
 library(ggmap); register_google(key = "AIzaSyDZKT-rGxUv21PxNFO4elG-n4m31gOqn_M")
 library(lubridate)
@@ -28,7 +29,10 @@ df$house[duplicated(df$house)]
 df <- df[!duplicated(df$house),]
 df$rooms <- df$beds + df$living
 
-df$days_since <- as.numeric(df$date - min(df$date))
+df$date <- as.Date(df$date)
+earliest_date <- min(df$date)
+df <- df %>%
+  mutate(days_since = as.numeric(difftime(date, earliest_date, units = "days")))
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
 m1 <- gam(price ~ 
@@ -42,6 +46,8 @@ m1 <- gam(price ~
           data = df,
           method = "REML")
 
+saveRDS(m1, file = "C:/abdn_house_app/data/model_m1.rds")
+
 ## Generate predictions ----------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
 df$expect <- round(prds$fit)
@@ -52,6 +58,8 @@ df$upp <- round(prds$fit + 1.96 * prds$se.fit)
 
 df$diffn <- df$price - df$expect
 df$diff <- scales::comma(df$price - df$expect)
+
+slice_max(df, diffn, n = 10)
 
 df$over <- ifelse(df$price > df$upp, "Overpriced", 
                   ifelse(df$price < df$low, "Underpriced", 
@@ -130,6 +138,51 @@ df$viewing <- ifelse((
     df$rooms >= 3,                                      # Enough rooms for offices etc
   "View", "Meh")
 
+
+# Save output -------------------------------------------------------------
+
+saveRDS(df, file = "C:/abdn_house_prices/app/processed_data.rds")
+
+# Dream house prediction -----------------------------------------------------
+
+dream_house <- data.frame(
+  lat = 57.15483899436254,
+  lon = -2.269886390197508,
+  type = "detached",
+  rooms = 4,
+  baths = 2,
+  epc = "c",
+  tax = "d",
+  sqmt = 100,
+  days_since = as.numeric(ymd(Sys.Date()) - min(ymd(df$date))) # Today
+)
+
+prds <- predict(m1, newdata = dream_house, se.fit = TRUE)
+paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
+       round(prds$fit - 1.96 * prds$se.fit, digits = -3)/1000, "k-£",
+       round(prds$fit + 1.96 * prds$se.fit, digits = -3)/1000, "k] (n = ",
+       nrow(df), ") ", stringr::str_to_title(dream_house$type)
+)
+# £240k (n = 175)
+# £246k (n = 201)
+# £233k [£208k-£257k] (n = 235) Semi
+# £229k [£204k-£254k] (n = 237) Semi
+# £226k [£202k-£250k] (n = 261) Semi
+# £236k [£212k-£259k] (n = 261) Detached
+# £236k [£212k-£260k] (n = 271) Detached
+# £241k [£219k-£262k] (n = 296) Detached
+# £240k [£219k-£262k] (n = 299) Detached
+# £244k [£222k-£266k] (n = 301) Detached
+# £240k [£220k-£261k] (n = 332) Detached
+# £239k [£220k-£259k] (n = 385) Detached
+# £240k [£220k-£259k] (n = 383) Detached (Removed stupid multi-million £ mansion)
+# £243k [£222k-£263k] (n = 383) Detached (Including time in model)
+# £253k [£226k-£281k] (n = 385) Detached (with GP, k = 20 for space)
+# £240k [£215k-£264k] (n = 385) Detached (dropped baths to 2 and sqmt to 100)
+# £241k [£216k-£265k] (n = 394) Detached
+# £242k [£218k-£267k] (n = 410) Detached
+# £242k [£218k-£267k] (n = 412) Detached
+# £264k [£233k-£295k] (n = 511) Detached
 
 ## Time --------------------------------------------------------------------
 
@@ -494,6 +547,8 @@ ggplot(df) +
 
 # Maps --------------------------------------------------------------------
 
+df <- readRDS(here("data", "processed_data.rds"))
+
 ## Leaflet map pricing -------------------------------------------------------------
 
 pricing <- awesomeIconList(
@@ -580,6 +635,7 @@ abdn_map_price <- leaflet(df) %>%
 #abdn_map_price
 
 saveWidget(abdn_map_price, here::here("output", file = "abdn_homes_pricing.html"), selfcontained = TRUE)
+saveWidget(abdn_map_price, here("app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
 
 ## Leaflet map viewing ---------------------------------------------------
 
@@ -736,6 +792,7 @@ abdn_map_view <- leaflet() %>%
 #abdn_map_view
 
 saveWidget(abdn_map_view, here::here("output", file = "abdn_viewing.html"), selfcontained = TRUE)
+saveWidget(abdn_map_view, here("app", "www", "abdn_viewing.html"), selfcontained = TRUE)
 
 
 ## Leaflet map viewing today -----------------------------------------------------
@@ -872,6 +929,7 @@ abdn_map_view_today <- leaflet() %>%
 
 abdn_map_view_today
 saveWidget(abdn_map_view_today, here::here("output", file = "abdn_viewing_today.html"), selfcontained = TRUE)
+saveWidget(abdn_map_view_today, here("app", "www", "abdn_viewing_today.html"), selfcontained = TRUE)
 
 
 ## Leaflet map today -----------------------------------------------------
