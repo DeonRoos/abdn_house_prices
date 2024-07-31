@@ -4,6 +4,7 @@
 # Packages ----------------------------------------------------------------
 library(googlesheets4) # For loading in the data from google sheets
 library(ggplot2)       # For data visualiations
+library(patchwork)
 library(mgcv)          # For non-linear models
 library(dplyr)
 library(leaflet)
@@ -13,7 +14,8 @@ library(htmlwidgets)
 library(geosphere)
 library(httr)
 library(jsonlite)
-theme_set(theme_minimal())
+source("sbs_theme.R")
+theme_set(sbs_theme())
 
 df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXXe2Rh-pY6boQEA1zR1nsus/edit?usp=sharing",
                  sheet = "Sheet1", 
@@ -141,7 +143,7 @@ df$viewing <- ifelse((
 
 # Save output -------------------------------------------------------------
 
-saveRDS(df, file = "C:/abdn_house_prices/app/processed_data.rds")
+# saveRDS(df, file = "C:/abdn_app/app/processed_data.rds")
 
 # Dream house prediction -----------------------------------------------------
 
@@ -183,6 +185,8 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £242k [£218k-£267k] (n = 410) Detached
 # £242k [£218k-£267k] (n = 412) Detached
 # £264k [£233k-£295k] (n = 511) Detached
+# £262k [£232k-£293k] (n = 541) Detached
+# £259k [£229k-£289k] (n = 548) Detached
 
 ## Time --------------------------------------------------------------------
 
@@ -205,15 +209,15 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
+p1 <- ggplot() +
   # geom_point(data = df, aes(x = date, y = price)) +
   # geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = date, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
+  geom_ribbon(data = nu_data, aes(x = date, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = date, y = fit)) +
   # scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "Date")
-
+p1
 ## Square meters -----------------------------------------------------------
 
 nu_data <- data.frame(
@@ -235,15 +239,15 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
-  geom_point(data = df, aes(x = sqmt, y = price)) +
-  geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
+p2 <- ggplot() +
+  # geom_point(data = df, aes(x = sqmt, y = price)) +
+  # geom_hline(yintercept = 250000, linetype = 2) +
+  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = sqmt, y = fit)) +
   scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "Square meters")
-
+p2
 ## Rooms ----------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -265,15 +269,15 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
-  geom_point(data = df, aes(x = rooms, y = price)) +
-  geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
+p3 <- ggplot() +
+  # geom_point(data = df, aes(x = rooms, y = price)) +
+  # geom_hline(yintercept = 250000, linetype = 2) +
+  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = rooms, y = fit)) +
   scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "Rooms")
-
+p3
 ## Interaction ----------------------------------------------------------------
 
 nu_data <- expand.grid(
@@ -298,13 +302,13 @@ nu_data$fit[exclude.too.far(
   df$rooms, df$sqmt,
   dist = 0.1)] <- NA
 
-ggplot() +
+p4 <- ggplot() +
   geom_raster(data = nu_data, aes(x = rooms, y = sqmt, fill = fit)) +
   scale_fill_viridis_c(option = "magma", na.value = "transparent", labels = scales::comma) +
   labs(y = "Square meters",
        x = "Rooms",
        fill = "Expected\nprice")
-
+p4
 ## House type --------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -326,13 +330,13 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
-  geom_errorbar(data = nu_data, aes(x = type, y = fit, ymin = low, ymax = upp), width = 0.1) +
+p5 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = type, y = fit, ymin = low, ymax = upp), width = 0.1, colour = "white") +
   geom_point(data = nu_data, aes(x = type, y = fit), size = 3.5) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking price",
        x = "Square meters")
-
+p5
 ## Baths ----------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -354,15 +358,15 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
-  geom_point(data = df, aes(x = baths, y = price)) +
-  geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = baths, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
+p6 <- ggplot() +
+  # geom_point(data = df, aes(x = baths, y = price)) +
+  # geom_hline(yintercept = 250000, linetype = 2) +
+  geom_ribbon(data = nu_data, aes(x = baths, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = baths, y = fit)) +
   scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "Bathrooms")
-
+p6
 ## Space ------------------------------------------------------------
 
 # get map of whole region for plotting
@@ -399,7 +403,7 @@ nu_data$fit[exclude.too.far(
   df$lat, df$lon,
   dist = 0.04)] <- NA
 
-ggmap(abdnshire) +
+p7 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
   geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", binwidth = 30000) +
   geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
@@ -408,7 +412,7 @@ ggmap(abdnshire) +
   labs(x = "Longitude",
        y = "Latitude",
        fill = "Expected\nprice")
-
+p7
 ## Aberdeen ----------------------------------------------------------------
 
 min_lon <- -2.25
@@ -446,7 +450,7 @@ abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565),
                 source = "google", 
                 messaging = FALSE)
 
-ggmap(abdn) +
+p8 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), na.rm = TRUE, alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", binwidth = 10000) +
   geom_point(data = df[df$lat > min_lat & df$lat < max_lat &
@@ -456,7 +460,7 @@ ggmap(abdn) +
   labs(x = "Longitude",
        y = "Latitude",
        fill = "Expected\nprice")
-
+p8
 ## EPC ------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -478,14 +482,14 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
+p9 <- ggplot() +
   #geom_jitter(data = df, aes(x = epc, y = price), width = 0.1, alpha = 0.1) +
-  geom_errorbar(data = nu_data, aes(x = epc, y = fit, ymin = low, ymax = upp), width = 0.1) +
-  geom_point(data = nu_data, aes(x = epc, y = fit)) +
+  geom_errorbar(data = nu_data, aes(x = epc, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
+  geom_point(data = nu_data, aes(x = epc, y = fit), size = 2.5) +
   #scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "EPC")
-
+p9
 ## Tax ------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -507,34 +511,45 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-ggplot() +
+p10 <- ggplot() +
   # geom_jitter(data = df, aes(x = tax, y = price), width = 0.1, height = 0, alpha = 0.2) +
-  geom_errorbar(data = nu_data, aes(x = tax, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1) +
+  geom_errorbar(data = nu_data, aes(x = tax, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
   geom_point(data = nu_data, aes(x = tax, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
   #scale_colour_brewer(palette = "Dark2", direction = -1) +
   labs(y = "Asking price",
        x = "Tax band")
-
+p10
 # Predicted versus response -----------------------------------------------
 
 sig <- sigma(m1)
 
-ggplot(df) +
+p11 <- ggplot(df) +
   geom_point(aes(x = expect, y = price, colour = over), size = 3) +
-  geom_abline(intercept = 0, slope = 1) +
-  geom_abline(intercept = 1.96 * sig, slope = 1, linetype = 2) +
-  geom_abline(intercept = 1.96 * -sig, slope = 1, linetype = 2) +
+  geom_abline(intercept = 0, slope = 1, colour = "white") +
+  geom_abline(intercept = 1.96 * sig, slope = 1, linetype = 2, colour = "white") +
+  geom_abline(intercept = 1.96 * -sig, slope = 1, linetype = 2, colour = "white") +
   scale_y_continuous(limits = c(NA,1000000), labels = scales::comma) +
   scale_x_continuous(limits = c(NA,1000000), labels = scales::comma) +
   scale_colour_brewer(palette = "Dark2") +
   labs(x = "Expected price",
        y = "Listed price",
        colour = "Pricing")
-  
+p11  
 
+design <- "
+CCDD
+EEFF
+GGHH
+#KK#
+"
 
+p_maps <- p7 / p8 
 
+p_figs <- p4 + p1 + p5 + p6 + p9 + p10 + p11 + plot_layout(design = design)
+
+ggsave("C:/abdn_app/www/plot_maps.png", plot = p_maps)
+ggsave("C:/abdn_app/www/plot_figs.png", plot = p_figs)
 
 
 
@@ -547,7 +562,8 @@ ggplot(df) +
 
 # Maps --------------------------------------------------------------------
 
-df <- readRDS(here("data", "processed_data.rds"))
+library(here)
+#df <- readRDS(here("data", "processed_data.rds"))
 
 ## Leaflet map pricing -------------------------------------------------------------
 
@@ -635,7 +651,7 @@ abdn_map_price <- leaflet(df) %>%
 #abdn_map_price
 
 saveWidget(abdn_map_price, here::here("output", file = "abdn_homes_pricing.html"), selfcontained = TRUE)
-saveWidget(abdn_map_price, here("app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
+saveWidget(abdn_map_price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
 
 ## Leaflet map viewing ---------------------------------------------------
 
@@ -792,7 +808,7 @@ abdn_map_view <- leaflet() %>%
 #abdn_map_view
 
 saveWidget(abdn_map_view, here::here("output", file = "abdn_viewing.html"), selfcontained = TRUE)
-saveWidget(abdn_map_view, here("app", "www", "abdn_viewing.html"), selfcontained = TRUE)
+saveWidget(abdn_map_view, here("C:/abdn_app", "www", "abdn_viewing.html"), selfcontained = TRUE)
 
 
 ## Leaflet map viewing today -----------------------------------------------------
@@ -929,7 +945,7 @@ abdn_map_view_today <- leaflet() %>%
 
 abdn_map_view_today
 saveWidget(abdn_map_view_today, here::here("output", file = "abdn_viewing_today.html"), selfcontained = TRUE)
-saveWidget(abdn_map_view_today, here("app", "www", "abdn_viewing_today.html"), selfcontained = TRUE)
+saveWidget(abdn_map_view_today, here("C:/abdn_app", "www", "abdn_viewing_today.html"), selfcontained = TRUE)
 
 
 ## Leaflet map today -----------------------------------------------------
