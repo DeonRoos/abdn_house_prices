@@ -25,6 +25,8 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 # When doing data entry
 # house <- "18 Cypress Walk"
 # df[df$house == house,]
+df <- df[df$house != "Blackbriggs",] # Weird house that's actually 3 houses so inflates local area price
+ 
 
 # Remove duplicates -------------------------------------------------------
 df$house[duplicated(df$house)]
@@ -187,6 +189,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £264k [£233k-£295k] (n = 511) Detached
 # £262k [£232k-£293k] (n = 541) Detached
 # £259k [£229k-£289k] (n = 548) Detached
+# £251k [£224k-£279k] (n = 577) Detached
 
 ## Time --------------------------------------------------------------------
 
