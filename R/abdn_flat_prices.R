@@ -8,12 +8,16 @@ theme_set(theme_minimal())
 
 df <- read_sheet("https://docs.google.com/spreadsheets/d/1ay5qIHe6MK1ZLZLLDDgAVWbfnvFjc2wX2HWLeto2LKw/edit?usp=sharing",
                  sheet = "Sheet1", 
-                 trim_ws = TRUE)
+                 trim_ws = TRUE,
+                 na = "NA")
 
+df$house[duplicated(df$house)]
 df <- df[!duplicated(df$house),]
 # Number of rooms ---------------------------------------------------------
 
 df$rooms <- df$beds + df$living
+
+df <- df[complete.cases(df),]
 
 # Commute time to ABDN uni ------------------------------------------------
 
@@ -45,56 +49,11 @@ df$commute_time_minutes <- df$commute_time / 60
 
 
 # Linear model ------------------------------------------------------------
-m1 <- lm(price ~ sqmt + beds,
+m1 <- lm(price ~ sqmt + rooms + epc + tax,
           data = df)
-
 
 # Summary -----------------------------------------------------------------
 summary(m1)
-
-# How to split cost -------------------------------------------------------
-
-# Assume:
-# 100 square meter flat
-# 3 bedrooms and 1 living room
-# 3 people rent
-# Bedroom 1 is 10 sqmt
-# Bedroom 2 is 12 sqmt
-# Bedroom 3 is 8 sqmt
-
-calculate_rent <- function(model, total_square_meters, room_sizes, true_rental_price) {
-  number_of_rooms <- length(room_sizes)
-  expected_rental_price <- coef(model)[1] + coef(model)[3] * number_of_rooms + coef(model)[2] * total_square_meters
-  total_bedroom_area <- sum(room_sizes)
-  idealized_bedroom_rents <- (room_sizes / total_bedroom_area) * expected_rental_price
-  realized_bedroom_rents <- (room_sizes / total_bedroom_area) * true_rental_price
-  list(
-    expected_rental_price = round(expected_rental_price, digits = 0),
-    idealized_bedroom_rents = round(idealized_bedroom_rents, digits = 0),
-    realized_bedroom_rents = round(realized_bedroom_rents, digits = 0),
-    price_per_smqt = true_rental_price/total_square_meters
-  )
-}
-
-total_square_meters <- 109
-room_sizes <- c(10, 12, 14)
-true_rental_price <- 975
-
-rent_details <- calculate_rent(m1, total_square_meters, room_sizes, true_rental_price)
-
-paste0("Rent per person: £", 
-       rent_details$idealized_bedroom_rents[1], ", £",
-       rent_details$idealized_bedroom_rents[2], ", £",
-       rent_details$idealized_bedroom_rents[3],  ". ",
-       "Given an expected rent of £", rent_details$expected_rental_price)
-
-paste0("Rent per person: £", 
-       rent_details$realized_bedroom_rents[1], ", £",
-       rent_details$realized_bedroom_rents[2], ", £",
-       rent_details$realized_bedroom_rents[3],  ". ",
-       "Given a rent of £", true_rental_price)
-
-cat("Realized bedroom rents:", rent_details$realized_bedroom_rents, "\n")
 
 par(mfrow = c(2,2))
 plot(m1)
@@ -150,7 +109,6 @@ abdn_map <- leaflet(df) %>%
       "<hr>",
       "<span style='font-size: 16px;'><b>Rental details</b></span>",
       "<br><b>Rent fairness:</b> ", df$over,
-      "<br><b>Rent per m<sup>2</sup>:</b> ", paste0( "£", round(df$price/df$sqmt, digits = 0)), " per m<sup>2</sup>",
       "<br><b>Rent:</b> £", scales::comma(df$price), " (£", abs(round(df$diffn, digits = 0)),
       ifelse(round(df$diffn, digits = 0) < 0, " under expected)", ifelse(round(df$diffn, digits = 0) > 0, " over expected)", ")")),
       "<br><b>Expected Rent:</b> £", scales::comma(df$expect),
@@ -178,9 +136,11 @@ abdn_map <- leaflet(df) %>%
 abdn_map
 
 dream_house <- data.frame(
-  rooms = 1,
+  rooms = 2,
   sqmt = 60,
-  commute_time_minutes = 5
+  commute_time_minutes = 5,
+  epc = "b",
+  tax = "g"
 )
 
 predict(m1, newdata = dream_house)
@@ -201,12 +161,13 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 ggplot() +
+  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
   geom_point(data = df, aes(x = sqmt, y = price)) +
-  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
   geom_line(data = nu_data, aes(x = sqmt, y = fit)) +
   scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
-       x = "Square meters")
+       x = "Square meters") +
+  sbs_theme()
 
 # Rooms ----------------------------------------------------------------
 
@@ -224,60 +185,43 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 ggplot() +
+  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
   geom_point(data = df, aes(x = rooms, y = price)) +
-  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
   geom_line(data = nu_data, aes(x = rooms, y = fit)) +
   scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
-       x = "Rooms")
+       x = "Rooms") +
+  sbs_theme()
 
-# Interaction ----------------------------------------------------------------
+# Commute time ----------------------------------------------------------------
 
-nu_data <- expand.grid(
+nu_data <- data.frame(
   epc = "c",
   tax = "c",
-  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
-  baths = median(df$baths),
-  sqmt = seq(min(df$sqmt), max(df$sqmt), length.out = 25),
-  commute_time_minutes = median(df$commute_time_minutes)
+  commute_time_minutes = seq(min(df$commute_time_minutes), max(df$commute_time_minutes), length.out = 25),
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt)
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 ggplot() +
-  geom_raster(data = nu_data, aes(x = rooms, y = sqmt, fill = fit)) +
-  scale_fill_viridis_c(option = "magma", na.value = "transparent", labels = scales::comma) +
-  labs(y = "Square meters",
-       x = "Rooms (Bedrooms + Living)",
-       fill = "Expected\nprice")
+  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_point(data = df, aes(x = rooms, y = price)) +
+  geom_line(data = nu_data, aes(x = rooms, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Rooms") +
+  sbs_theme()
 
-# Predicted versus response -----------------------------------------------
+# EPC ----------------------------------------------------------------
 
-ggplot(df) +
-  geom_point(aes(x = price, y = expect)) +
-  geom_abline(intercept = 0, slope = 1)
-
-ggplot(df) +
-  geom_point(aes(x = price, y = resid(m1)/sigma(m1))) +
-  geom_abline(intercept = 0, slope = 0)
-
-# GAM with space ----------------------------------------------------------
-
-m1 <- gam(price ~ 
-            # te(lon, lat, k = 15, bs = "cr") +
-            # te(sqmt, rooms, k = 5, bs = "cr") +
-            te(lon, lat, k = 5, bs = "cr") +
-            sqmt * rooms +
-            commute_time_minutes,
-          data = df,
-          method = "REML")
-
-# Space ------------------------------------------------------------
-
-nu_data <- expand.grid(
-  lat = seq(min(df$lat), max(df$lat), length.out = 50),
-  lon = seq(min(df$lon), max(df$lon), length.out = 50),
+nu_data <- data.frame(
+  epc = unique(df$epc),
+  tax = "c",
   commute_time_minutes = median(df$commute_time_minutes),
   rooms = median(df$rooms),
   sqmt = median(df$sqmt)
@@ -288,18 +232,106 @@ nu_data$fit <- prds$fit
 nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
+ggplot() +
+  geom_errorbar(data = nu_data, aes(x = epc, ymin = low, ymax = upp), colour = "white", width = 0.1) +
+  #geom_point(data = df, aes(x = epc, y = price)) +
+  geom_point(data = nu_data, aes(x = epc, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "EPC") +
+  sbs_theme()
+
+# Tax ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = "c",
+  tax = unique(df$tax),
+  commute_time_minutes = median(df$commute_time_minutes),
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+ggplot() +
+  geom_errorbar(data = nu_data, aes(x = tax, ymin = low, ymax = upp), colour = "white", width = 0.1) +
+  #geom_point(data = df, aes(x = epc, y = price)) +
+  geom_point(data = nu_data, aes(x = tax, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Tax Band") +
+  sbs_theme()
+
+# Predicted versus response -----------------------------------------------
+
+ggplot(df) +
+  geom_point(aes(x = price, y = expect)) +
+  geom_abline(intercept = 0, slope = 1, colour = "white") +
+  geom_abline(intercept = 0 + sigma(m1), slope = 1, colour = "white", linetype = 2) +
+  geom_abline(intercept = 0 - sigma(m1), slope = 1, colour = "white", linetype = 2) +
+  geom_abline(intercept = 0 + 2 * sigma(m1), slope = 1, colour = "white", linetype = 2, alpha = 0.5) +
+  geom_abline(intercept = 0 - 2 * sigma(m1), slope = 1, colour = "white", linetype = 2, alpha = 0.5) +
+  sbs_theme()
+
+ggplot(df) +
+  geom_point(aes(x = price, y = resid(m1)/sigma(m1))) +
+  geom_abline(intercept = 0, slope = 0, colour = "white") +
+  sbs_theme()
+
+
+# GAM with space ----------------------------------------------------------
+mp <- list(
+  c(3, 0.1, 1), # 3 for GP, 0.1 ca. 10 km range of rho, 1 as default for scale
+  c(3, 0.1, 1)
+)
+m1 <- gam(price ~ 
+            # te(lon, lat, k = 15, bs = "cr") +
+            # te(sqmt, rooms, k = 5, bs = "cr") +
+            te(lon, lat, k = 5, bs = "gp", m = mp) +
+            sqmt + rooms + tax + epc +
+            commute_time_minutes,
+          data = df,
+          method = "REML")
+
+
+summary(m1)
+
+# Space ------------------------------------------------------------
+
+# get map of whole region for plotting
+lon_bar <- (min(df$lon, na.rm = TRUE) + max(df$lon, na.rm = TRUE))/2
+lat_bar <- (min(df$lat, na.rm = TRUE) + max(df$lat, na.rm = TRUE))/2
+
+abdnshire <- get_map(location = c(lon_bar, lat_bar), 
+                     zoom = 10, 
+                     maptype = "hybrid", 
+                     source = "google", 
+                     messaging = FALSE)
+
+nu_data <- expand.grid(
+  lat = seq(min(df$lat), max(df$lat), length.out = 200),
+  lon = seq(min(df$lon), max(df$lon), length.out = 200),
+  epc = "c",
+  tax = "c",
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt),
+  commute_time_minutes = median(df$commute_time_minutes)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
 nu_data$fit[exclude.too.far(
   nu_data$lat, nu_data$lon,
   df$lat, df$lon,
-  dist = 0.08)] <- NA
+  dist = 0.04)] <- NA
 
-abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
-                zoom = 12, 
-                maptype = "hybrid", 
-                source = "google", 
-                messaging = FALSE)
-
-p1 <- ggmap(abdn) +
+p1 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
   geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
   geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
@@ -307,36 +339,67 @@ p1 <- ggmap(abdn) +
   #coord_sf() +
   labs(x = "Longitude",
        y = "Latitude",
-       fill = "Expected\nprice")
+       fill = "Expected\nprice") +
+  sbs_theme()
 p1
-# Interaction ----------------------------------------------------------------
+
+
+# Aberdeen ----------------------------------------------------------------
+
+min_lon <- -2.25
+max_lon <- -2.03
+min_lat <- 57.06
+max_lat <- 57.21
+
+abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
+                zoom = 12, 
+                maptype = "hybrid", 
+                source = "google", 
+                messaging = FALSE)
 
 nu_data <- expand.grid(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
-  sqmt = seq(min(df$sqmt), max(df$sqmt), length.out = 25),
+  lat = seq(min(df$lat), max(df$lat), length.out = 200),
+  lon = seq(min(df$lon), max(df$lon), length.out = 200),
+  epc = "c",
+  tax = "c",
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt),
   commute_time_minutes = median(df$commute_time_minutes)
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
-p2 <- ggplot() +
-  geom_raster(data = nu_data, aes(x = rooms, y = sqmt, fill = fit)) +
-  scale_fill_viridis_c(option = "magma", na.value = "transparent", labels = scales::comma) +
-  labs(y = "Square meters",
-       x = "Rooms (Bedrooms + Living)",
-       fill = "Expected\nprice")
+nu_data$fit[exclude.too.far(
+  nu_data$lat, nu_data$lon,
+  df$lat, df$lon,
+  dist = 0.1)] <- NA
 
-# Interaction ----------------------------------------------------------------
+p2 <- ggmap(abdn) +
+  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), na.rm = TRUE, alpha = 0.6) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
+  geom_point(data = df[df$lat > min_lat & df$lat < max_lat &
+                         df$lon > min_lon & df$lon < max_lon,], aes(x = lon, y = lat), colour = "white", size = 0.5) +
+  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
+  #coord_sf() +
+  labs(x = "Longitude",
+       y = "Latitude",
+       fill = "Expected\nprice") +
+  sbs_theme()
+p2
 
-nu_data <- expand.grid(
+# Square meters -----------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = "c",
+  tax = "c",
+  commute_time_minutes = median(df$commute_time_minutes),
   lat = median(df$lat),
   lon = median(df$lon),
   rooms = median(df$rooms),
-  sqmt = median(df$sqmt),
-  commute_time_minutes = seq(min(df$commute_time_minutes), max(df$commute_time_minutes), length.out = 25)
+  sqmt = seq(min(df$sqmt), max(df$sqmt), length.out = 25)
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -345,20 +408,128 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p3 <- ggplot() +
-  geom_point(data = df, aes(x = commute_time_minutes, y = price), alpha = 0.2) +
-  geom_ribbon(data = nu_data, aes(x = commute_time_minutes, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
-  geom_line(data = nu_data, aes(x = commute_time_minutes, y = fit)) +
-  #scale_colour_brewer(palette = "Dark2", direction = -1) +
+  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_point(data = df, aes(x = sqmt, y = price)) +
+  geom_line(data = nu_data, aes(x = sqmt, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
-       x = "Time to walk to Uni")
+       x = "Square meters") +
+  sbs_theme()
+p3
+
+# Rooms ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = "c",
+  tax = "c",
+  lat = median(df$lat),
+  lon = median(df$lon),
+  commute_time_minutes = median(df$commute_time_minutes),
+  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+p4 <- ggplot() +
+  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_point(data = df, aes(x = rooms, y = price)) +
+  geom_line(data = nu_data, aes(x = rooms, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Rooms") +
+  sbs_theme()
+
+# Commute time ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = "c",
+  tax = "c",
+  lat = median(df$lat),
+  lon = median(df$lon),
+  commute_time_minutes = seq(min(df$commute_time_minutes), max(df$commute_time_minutes), length.out = 25),
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+p5 <- ggplot() +
+  geom_ribbon(data = nu_data, aes(x = commute_time_minutes, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_point(data = df, aes(x = commute_time_minutes, y = price)) +
+  geom_line(data = nu_data, aes(x = commute_time_minutes, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Commute time") +
+  sbs_theme()
+
+# EPC ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = unique(df$epc),
+  tax = "c",
+  lat = median(df$lat),
+  lon = median(df$lon),
+  commute_time_minutes = median(df$commute_time_minutes),
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+p6 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = epc, ymin = low, ymax = upp), colour = "white", width = 0.1) +
+  #geom_point(data = df, aes(x = epc, y = price)) +
+  geom_point(data = nu_data, aes(x = epc, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "EPC") +
+  sbs_theme()
+
+# Tax ----------------------------------------------------------------
+
+nu_data <- data.frame(
+  epc = "c",
+  tax = unique(df$tax),
+  lat = median(df$lat),
+  lon = median(df$lon),
+  commute_time_minutes = median(df$commute_time_minutes),
+  rooms = median(df$rooms),
+  sqmt = median(df$sqmt)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+p7 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = tax, ymin = low, ymax = upp), colour = "white", width = 0.1) +
+  #geom_point(data = df, aes(x = epc, y = price)) +
+  geom_point(data = nu_data, aes(x = tax, y = fit)) +
+  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
+  labs(y = "Asking price",
+       x = "Tax Band") +
+  sbs_theme()
 
 library(patchwork)
 design <- "
 AA
-AA
 BC
+DE
 "
-p1 + p2 + p3 + plot_layout(design = design)
+p1 + p2
+
+p3 + p4 + p5 + p6 + p7 + plot_layout(design = design)
 
 prds <- predict(m1, se.fit = TRUE)
 df$expect <- round(prds$fit)
@@ -372,6 +543,8 @@ df$over <- ifelse(df$price > df$upp, "Overpriced",
                   ifelse(df$price < df$low, "Underpriced", 
                          "Fairly priced"))
 
+# Leaflet map -------------------------------------------------------------
+
 pricing <- awesomeIconList(
   "Underpriced" = makeAwesomeIcon(
     icon = "home",
@@ -380,7 +553,7 @@ pricing <- awesomeIconList(
   ),
   "Fairly priced" = makeAwesomeIcon(
     icon = "home",
-    markerColor = "white",
+    markerColor = "beige",
     library = "fa"
   ),
   "Overpriced" = makeAwesomeIcon(
@@ -391,7 +564,7 @@ pricing <- awesomeIconList(
 )
 
 abdn_map <- leaflet(df) %>%
-  addProviderTiles(provider = "Esri.WorldImagery") %>%
+  addProviderTiles(provider = "OpenStreetMap") %>%
   addAwesomeMarkers(
     #data = df,
     lng = ~lon, lat = ~lat,
@@ -399,24 +572,32 @@ abdn_map <- leaflet(df) %>%
     label = ~ house,
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
-      "<b>", df$house, "</b>",
-      "<br><b>Walk to Aberdeen Uni:</b> ", round(df$commute_time_minutes), " minutes",
+      "<span style='font-size: 20px;'><b>", df$house, "</b></span><br>",
+      "<span style='font-size: 16px;'><b>Commute</b></span>",
+      "<br><b>Time to walk:</b> ", ifelse(df$commute_time_minutes < 60, 
+                                          paste0(round(df$commute_time_minutes), " minutes"), 
+                                          paste0(round(df$commute_time_minutes / 60, 1), " hours")),
       "<hr>",
-      "<br><b>Pricing:</b> ", df$over,
-      "<br><b>Asking Price:</b> £", scales::comma(df$price), " (£", abs(round(df$diffn, digits = 0)),
+      "<span style='font-size: 16px;'><b>Rental details</b></span>",
+      "<br><b>Rent fairness:</b> ", df$over,
+      "<br><b>Rent:</b> £", scales::comma(df$price), " (£", abs(round(df$diffn, digits = 0)),
       ifelse(round(df$diffn, digits = 0) < 0, " under expected)", ifelse(round(df$diffn, digits = 0) > 0, " over expected)", ")")),
-      "<br><b>Expected Price:</b> £", scales::comma(df$expect),
-      "<br><b>Expected Price Range:</b> £", round(df$low, digits = 0), " - ", round(df$upp, digits = 0), 
-      "<br>",
+      "<br><b>Expected Rent:</b> £", scales::comma(df$expect),
+      "<br><b>Expected Rent Range:</b> £", round(df$low, digits = 0), " - ", round(df$upp, digits = 0), 
       "<hr>",
+      "<span style='font-size: 16px;'><b>Flat details</b></span>",
       "<br><b>Date added:</b> ", df$date,
-      "<br><b># Bedrooms:</b> ", df$beds,
-      "<br><b># Living rooms:</b> ", df$living,
-      "<br><b># Bathrooms:</b> ", df$baths,
-      "<br><b>Square meters:</b> ", df$sqmt,
-      "<br><b>EPC rating:</b> ", df$epc,
-      "<br><b>Tax band:</b> ", df$tax,
-      "<br>",
+      "<table style='width: 100%; border-collapse: collapse;'>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      df$beds, " bedrooms", "<br>",
+      df$living, " living rooms", "<br>",
+      df$baths, " bathrooms", "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      df$sqmt, " m<sup>2</sup>", "<br>",
+      "EPC: ", toupper(df$epc), "<br>",
+      "Tax: ", toupper(df$tax), "<br>",
+      "</td></tr>",
+      "</table>",
       "<hr>",
       "<br><a href='", df$link, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
       "</div>"
@@ -426,3 +607,49 @@ abdn_map <- leaflet(df) %>%
 abdn_map
 
 saveWidget(abdn_map, here::here("output", file = "abdn_rent.html"), selfcontained = TRUE)
+
+
+
+# How to split cost -------------------------------------------------------
+
+# Assume:
+# 100 square meter flat
+# 3 bedrooms and 1 living room
+# 3 people rent
+# Bedroom 1 is 10 sqmt
+# Bedroom 2 is 12 sqmt
+# Bedroom 3 is 8 sqmt
+
+calculate_rent <- function(model, total_square_meters, room_sizes, true_rental_price) {
+  number_of_rooms <- length(room_sizes)
+  expected_rental_price <- coef(model)[1] + coef(model)[3] * number_of_rooms + coef(model)[2] * total_square_meters
+  total_bedroom_area <- sum(room_sizes)
+  idealized_bedroom_rents <- (room_sizes / total_bedroom_area) * expected_rental_price
+  realized_bedroom_rents <- (room_sizes / total_bedroom_area) * true_rental_price
+  list(
+    expected_rental_price = round(expected_rental_price, digits = 0),
+    idealized_bedroom_rents = round(idealized_bedroom_rents, digits = 0),
+    realized_bedroom_rents = round(realized_bedroom_rents, digits = 0),
+    price_per_smqt = true_rental_price/total_square_meters
+  )
+}
+
+total_square_meters <- 109
+room_sizes <- c(10, 12, 14)
+true_rental_price <- 975
+
+rent_details <- calculate_rent(m1, total_square_meters, room_sizes, true_rental_price)
+
+paste0("Rent per person: £", 
+       rent_details$idealized_bedroom_rents[1], ", £",
+       rent_details$idealized_bedroom_rents[2], ", £",
+       rent_details$idealized_bedroom_rents[3],  ". ",
+       "Given an expected rent of £", rent_details$expected_rental_price)
+
+paste0("Rent per person: £", 
+       rent_details$realized_bedroom_rents[1], ", £",
+       rent_details$realized_bedroom_rents[2], ", £",
+       rent_details$realized_bedroom_rents[3],  ". ",
+       "Given a rent of £", true_rental_price)
+
+cat("Realized bedroom rents:", rent_details$realized_bedroom_rents, "\n")

@@ -27,7 +27,6 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 # df[df$house == house,]
 df <- df[df$house != "Blackbriggs",] # Weird house that's actually 3 houses so inflates local area price
  
-
 # Remove duplicates -------------------------------------------------------
 df$house[duplicated(df$house)]
 df <- df[!duplicated(df$house),]
@@ -39,8 +38,12 @@ df <- df %>%
   mutate(days_since = as.numeric(difftime(date, earliest_date, units = "days")))
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
+mp <- list(
+  c(3, 0.1, 1), # 3 for GP, 0.1 ca. 10 km range of rho, 1 as default for scale
+  c(3, 0.1, 1)
+)
 m1 <- gam(price ~ 
-            te(lon, lat, k = 20, bs = "gp") +
+            te(lon, lat, k = 20, m = mp, bs = "gp") +
             te(sqmt, rooms, k = 5, bs = "cr") +
             s(days_since, k = 4, bs = "cr") +
             type +
@@ -50,7 +53,7 @@ m1 <- gam(price ~
           data = df,
           method = "REML")
 
-saveRDS(m1, file = "C:/abdn_house_app/data/model_m1.rds")
+saveRDS(m1, file = "C:/abdn_app/data/model_m1.rds")
 
 ## Generate predictions ----------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
@@ -110,32 +113,11 @@ df$commute_distance_bioss <- round(df$commute_distance_bioss / 1000, digits = 1)
 # Price per sqmt ----------------------------------------------------------
 df$price_sqmt <- df$price / df$sqmt
 
-m2 <- gam(price_sqmt ~ 
-            te(lon, lat, k = 20, bs = "gp") +
-            s(days_since, k = 4, bs = "cr") +
-            rooms +
-            type +
-            baths +
-            epc +
-            tax,
-          data = df,
-          method = "REML")
-
-prds <- predict(m2, se.fit = TRUE)
-df$expect_psq <- round(prds$fit)
-df$low_psq <- round(prds$fit - 1.96 * prds$se.fit)
-df$upp_psq <- round(prds$fit + 1.96 * prds$se.fit)
-
-df$over_sqmt <- ifelse(df$price_sqmt > df$upp_psq, "Overpriced", 
-                       ifelse(df$price_sqmt < df$low_psq, "Underpriced", 
-                              "Fairly priced"))
-
 ## Vieweing criteria ----------------------------------------------------------
 
 df$viewing <- ifelse((
   ((df$over == "Underpriced" | df$over == "Fairly priced") & df$price <= 250000) |   # Underpriced and in price range                  
     ((df$over == "Overpriced" | df$over == "Fairly priced") & df$expect <= 250000)) & # Overpriced but expected in price range
-    #df$over_sqmt != "Overpriced" &
     df$sqmt > 80 &                                    # Not tiny
     df$type != "terrace" &                            # Detached
     df$commute_time_minutes < 30 &                     # Within 20 minute drive of uni
@@ -147,7 +129,7 @@ df$viewing <- ifelse((
 
 # saveRDS(df, file = "C:/abdn_app/app/processed_data.rds")
 
-# Dream house prediction -----------------------------------------------------
+## House Price prediction -----------------------------------------------------
 
 dream_house <- data.frame(
   lat = 57.15483899436254,
@@ -190,6 +172,13 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £262k [£232k-£293k] (n = 541) Detached
 # £259k [£229k-£289k] (n = 548) Detached
 # £251k [£224k-£279k] (n = 577) Detached
+# £238k [£216k-£261k] (n = 601) Detached
+# £236k [£213k-£259k] (n = 604) Detached
+# £243k [£217k-£269k] (n = 604) Detached (Manually specified Matern params for shorter spatial aurocorrelation)
+# £239k [£215k-£263k] (n = 612) Detached
+
+
+# Figures -----------------------------------------------------------------
 
 ## Time --------------------------------------------------------------------
 
@@ -221,67 +210,8 @@ p1 <- ggplot() +
   labs(y = "Asking price",
        x = "Date")
 p1
-## Square meters -----------------------------------------------------------
 
-nu_data <- data.frame(
-  lat = median(df$lat), 
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = seq(min(df$sqmt), max(df$sqmt), length.out = 25),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-p2 <- ggplot() +
-  # geom_point(data = df, aes(x = sqmt, y = price)) +
-  # geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = sqmt, y = fit, ymin = low, ymax = upp), alpha = 1) +
-  geom_line(data = nu_data, aes(x = sqmt, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
-  labs(y = "Asking price",
-       x = "Square meters")
-p2
-## Rooms ----------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-p3 <- ggplot() +
-  # geom_point(data = df, aes(x = rooms, y = price)) +
-  # geom_hline(yintercept = 250000, linetype = 2) +
-  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
-  geom_line(data = nu_data, aes(x = rooms, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
-  labs(y = "Asking price",
-       x = "Rooms")
-p3
-## Interaction ----------------------------------------------------------------
+## M:Room Interaction ----------------------------------------------------------------
 
 nu_data <- expand.grid(
   lat = median(df$lat),
@@ -408,7 +338,7 @@ nu_data$fit[exclude.too.far(
 
 p7 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
-  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", binwidth = 30000) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
   geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   #coord_sf() +
@@ -416,12 +346,19 @@ p7 <- ggmap(abdnshire) +
        y = "Latitude",
        fill = "Expected\nprice")
 p7
+
 ## Aberdeen ----------------------------------------------------------------
 
 min_lon <- -2.25
 max_lon <- -2.03
 min_lat <- 57.06
 max_lat <- 57.21
+
+abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
+                zoom = 12, 
+                maptype = "hybrid", 
+                source = "google", 
+                messaging = FALSE)
 
 nu_data <- expand.grid(
   lat = seq(min_lat, max_lat, length.out = 50),
@@ -447,12 +384,6 @@ nu_data$fit[exclude.too.far(
   df$lat, df$lon,
   dist = 0.1)] <- NA
 
-abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
-                zoom = 12, 
-                maptype = "hybrid", 
-                source = "google", 
-                messaging = FALSE)
-
 p8 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), na.rm = TRUE, alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", binwidth = 10000) +
@@ -464,6 +395,7 @@ p8 <- ggmap(abdn) +
        y = "Latitude",
        fill = "Expected\nprice")
 p8
+
 ## EPC ------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -523,7 +455,7 @@ p10 <- ggplot() +
   labs(y = "Asking price",
        x = "Tax band")
 p10
-# Predicted versus response -----------------------------------------------
+## Predicted versus response -----------------------------------------------
 
 sig <- sigma(m1)
 
@@ -612,8 +544,7 @@ abdn_map_price <- leaflet(df) %>%
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
-      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>",
-              " (", over_sqmt, ")"),  
+      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",      
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
@@ -704,8 +635,7 @@ abdn_map_view <- leaflet() %>%
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
-      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>",
-             " (", over_sqmt, ")"),   
+      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>"),   
       "<hr>",      "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
       "<br><b>House type:</b> ", type,
@@ -764,8 +694,7 @@ abdn_map_view <- leaflet() %>%
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
-      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>",
-              " (", over_sqmt, ")"),  
+      paste0( "£", round(price/sqmt, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
@@ -834,7 +763,6 @@ abdn_map_view_today <- leaflet() %>%
       "<hr>",
       "<span style='font-size: 16px;'><b>Price</b></span>",
       "<br><b>Fairness:</b> ", over,
-      "<br><b>Price per m<sup>2</sup>:</b> ", paste0( "£", round(price/sqmt, digits = 0)), " per m<sup>2</sup>",
       "<br><b>Asking Price:</b>", 
       paste0(" £", scales::comma(price), 
              " (", abs(round(diffn / 1000, digits = 0)), "k",
@@ -845,6 +773,7 @@ abdn_map_view_today <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(expect)),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b>Price per m<sup>2</sup>:</b> ", paste0( "£", round(price/sqmt, digits = 0)), " per m<sup>2</sup>",
       "<hr>",
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
@@ -893,7 +822,6 @@ abdn_map_view_today <- leaflet() %>%
       "<hr>",
       "<span style='font-size: 16px;'><b>Price</b></span>",
       "<br><b>Fairness:</b> ", over,
-      "<br><b>Price per m<sup>2</sup>:</b> ", paste0( "£", round(price/sqmt, digits = 0)), " per m<sup>2</sup>",
       "<br><b>Asking Price:</b>", 
       paste0(" £", scales::comma(price), 
              " (", abs(round(diffn / 1000, digits = 0)), "k",
@@ -904,6 +832,7 @@ abdn_map_view_today <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(expect)),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b>Price per m<sup>2</sup>:</b> ", paste0( "£", round(price/sqmt, digits = 0)), " per m<sup>2</sup>",
       "<hr>",
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
@@ -1016,286 +945,3 @@ abdn_map_price_today <- leaflet(today_df) %>%
 
 abdn_map_price_today
 
-
-
-# Predictions for price per square meter ----------------------------------
-
-## Time --------------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat), 
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = seq(min(df$days_since), max(df$days_since), length.out = 25)
-)
-nu_data$date <- min(df$date) + nu_data$days_since
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  geom_ribbon(data = nu_data, aes(x = date, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
-  geom_line(data = nu_data, aes(x = date, y = fit)) +
-  labs(y = "Asking price per sqmt",
-       x = "Date")
-
-## Rooms ----------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  geom_point(data = df, aes(x = rooms, y = price_sqmt)) +
-  geom_ribbon(data = nu_data, aes(x = rooms, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
-  geom_line(data = nu_data, aes(x = rooms, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
-  labs(y = "Asking price per sqmt",
-       x = "Rooms")
-
-## House type --------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat), 
-  lon = median(df$lon),
-  type = c("semi", "detached", "terrace"),
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  epc = "c",
-  tax = "c",
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  geom_errorbar(data = nu_data, aes(x = type, y = fit, ymin = low, ymax = upp), width = 0.1) +
-  geom_point(data = nu_data, aes(x = type, y = fit), size = 3.5) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(y = "Asking price_sqmt",
-       x = "Square meters")
-
-## Baths ----------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = seq(min(df$baths), max(df$baths), length.out = 25),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  geom_point(data = df, aes(x = baths, y = price_sqmt)) +
-  geom_ribbon(data = nu_data, aes(x = baths, y = fit, ymin = low, ymax = upp), alpha = 0.3) +
-  geom_line(data = nu_data, aes(x = baths, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
-  labs(y = "Asking price_sqmt",
-       x = "Bathrooms")
-
-## Space ------------------------------------------------------------
-
-# get map of whole region for plotting
-lon_bar <- (min(df$lon, na.rm = TRUE) + max(df$lon, na.rm = TRUE))/2
-lat_bar <- (min(df$lat, na.rm = TRUE) + max(df$lat, na.rm = TRUE))/2
-
-abdnshire <- get_map(location = c(lon_bar, lat_bar), 
-                     zoom = 9, 
-                     maptype = "hybrid", 
-                     source = "google", 
-                     messaging = FALSE)
-
-nu_data <- expand.grid(
-  lat = seq(min(df$lat), max(df$lat), length.out = 200),
-  lon = seq(min(df$lon), max(df$lon), length.out = 200),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-nu_data$fit[exclude.too.far(
-  nu_data$lat, nu_data$lon,
-  df$lat, df$lon,
-  dist = 0.04)] <- NA
-
-ggmap(abdnshire) +
-  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
-  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
-  geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
-  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
-  #coord_sf() +
-  labs(x = "Longitude",
-       y = "Latitude",
-       fill = "Expected\nprice")
-
-## Aberdeen ----------------------------------------------------------------
-
-min_lon <- -2.25
-max_lon <- -2.03
-min_lat <- 57.06
-max_lat <- 57.21
-
-nu_data <- expand.grid(
-  lat = seq(min_lat, max_lat, length.out = 50),
-  lon = seq(min_lon, max_lon, length.out = 50),
-  type = "detached",
-  epc = "c",
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-nu_data$fit[exclude.too.far(
-  nu_data$lat, nu_data$lon,
-  df$lat, df$lon,
-  dist = 0.1)] <- NA
-
-abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
-                zoom = 12, 
-                maptype = "hybrid", 
-                source = "google", 
-                messaging = FALSE)
-
-ggmap(abdn) +
-  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), na.rm = TRUE, alpha = 0.6) +
-  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
-  geom_point(data = df[df$lat > min_lat & df$lat < max_lat &
-                         df$lon > min_lon & df$lon < max_lon,], aes(x = lon, y = lat), colour = "white", size = 0.5) +
-  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
-  #coord_sf() +
-  labs(x = "Longitude",
-       y = "Latitude",
-       fill = "Expected\nprice")
-
-## EPC ------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  type = "detached",
-  epc = unique(df$epc),
-  tax = "c",
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  #geom_jitter(data = df, aes(x = epc, y = price_sqmt), width = 0.1, alpha = 0.1) +
-  geom_errorbar(data = nu_data, aes(x = epc, y = fit, ymin = low, ymax = upp), width = 0.1) +
-  geom_point(data = nu_data, aes(x = epc, y = fit)) +
-  #scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
-  labs(y = "Asking price per sqmt",
-       x = "EPC")
-
-## Tax ------------------------------------------------------------
-
-nu_data <- data.frame(
-  lat = median(df$lat),
-  lon = median(df$lon),
-  type = "detached",
-  epc = "c",
-  tax = unique(df$tax),
-  rooms = median(df$rooms),
-  beds = median(df$beds),
-  baths = median(df$baths),
-  living = median(df$living),
-  sqmt = median(df$sqmt),
-  days_since = median(df$days_since)
-)
-
-prds <- predict(m2, newdata = nu_data, se.fit = TRUE)
-nu_data$fit <- prds$fit
-nu_data$low <- prds$fit - prds$se.fit * 1.96
-nu_data$upp <- prds$fit + prds$se.fit * 1.96
-
-ggplot() +
-  # geom_jitter(data = df, aes(x = tax, y = price_sqmt), width = 0.1, height = 0, alpha = 0.2) +
-  geom_errorbar(data = nu_data, aes(x = tax, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1) +
-  geom_point(data = nu_data, aes(x = tax, y = fit), size = 2.5) +
-  scale_y_continuous(labels = scales::comma) +
-  #scale_colour_brewer(palette = "Dark2", direction = -1) +
-  labs(y = "Asking price per sqmt",
-       x = "Tax band")
-
-# Predicted versus response -----------------------------------------------
-
-sig <- sigma(m2)
-
-ggplot(df) +
-  geom_point(aes(x = predict(m2), y = price_sqmt), size = 3) +
-  geom_abline(intercept = 0, slope = 1) +
-  geom_abline(intercept = 1.96 * sig, slope = 1, linetype = 2) +
-  geom_abline(intercept = 1.96 * -sig, slope = 1, linetype = 2) +
-  scale_colour_brewer(palette = "Dark2") +
-  labs(x = "Expected price per sqmt",
-       y = "Listed price per sqmt",
-       colour = "Pricing")
