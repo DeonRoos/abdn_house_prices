@@ -28,8 +28,9 @@ df <- read_sheet("https://docs.google.com/spreadsheets/d/1WQNnBK6P4ml9o8XyA9zMXX
 df <- df[df$house != "Blackbriggs",] # Weird house that's actually 3 houses so inflates local area price
  
 # Remove duplicates -------------------------------------------------------
-df$house[duplicated(df$house)]
-df <- df[!duplicated(df$house),]
+df$house[duplicated(paste(df$house, df$price))]
+df[duplicated(paste(df$house, df$price)),]
+df <- df[!duplicated(paste(df$house, df$price)),]
 df$rooms <- df$beds + df$living
 
 df$date <- as.Date(df$date)
@@ -37,15 +38,26 @@ earliest_date <- min(df$date)
 df <- df %>%
   mutate(days_since = as.numeric(difftime(date, earliest_date, units = "days")))
 
+df |> 
+  group_by(type) |> 
+  summarise(
+    avg_price = median(price, na.rm = TRUE),
+    avg_rooms = median(rooms, na.rm = TRUE),
+    avg_sqmt = median(sqmt, na.rm = TRUE),
+    most_common_tax = names(which.max(table(tax))),
+    most_common_epc = names(which.max(table(epc)))
+  )
+
 # The AI MaCHiNE LeARniNg model -------------------------------------------
 mp <- list(
   c(3, 0.1, 1), # 3 for GP, 0.1 ca. 10 km range of rho, 1 as default for scale
   c(3, 0.1, 1)
 )
+df$type <- factor(df$type)
 m1 <- gam(price ~ 
-            te(lon, lat, k = 20, m = mp, bs = "gp") +
-            te(sqmt, rooms, k = 5, bs = "cr") +
-            s(days_since, k = 4, bs = "cr") +
+            te(lon, lat, k = 23, m = mp, bs = "gp") +
+            te(sqmt, rooms, k = 8, bs = "cr") +
+            s(days_since, by = type, k = 10, bs = "cr") +
             type +
             baths +
             epc +
@@ -57,7 +69,7 @@ saveRDS(m1, file = "C:/abdn_app/data/model_m1.rds")
 
 ## Generate predictions ----------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
-df$expect <- round(prds$fit)
+df$expect <- round(prds$fit, digits = 0)
 df$low <- round(prds$fit - 1.96 * prds$se.fit)
 df$upp <- round(prds$fit + 1.96 * prds$se.fit)
 
@@ -176,7 +188,14 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £236k [£213k-£259k] (n = 604) Detached
 # £243k [£217k-£269k] (n = 604) Detached (Manually specified Matern params for shorter spatial aurocorrelation)
 # £239k [£215k-£263k] (n = 612) Detached
-
+# £240k [£217k-£264k] (n = 629) Detached
+# £246k [£226k-£266k] (n = 773) Detached
+# £245k [£225k-£264k] (n = 796) Detached
+# £244k [£225k-£263k] (n = 824) Detached
+# £239k [£219k-£260k] (n = 824) Detached (model now includes house type specific time relationship)
+# £245k [£225k-£266k] (n = 873) Detached (more k for GP and time)
+# £245k [£225k-£266k] (n = 913) Detached
+# £246k [£226k-£265k] (n = 983) Detached
 
 # Figures -----------------------------------------------------------------
 
@@ -187,7 +206,7 @@ nu_data <- data.frame(
   lon = median(df$lon),
   type = "detached",
   epc = "c",
-  tax = "c",
+  tax = "e",
   rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
@@ -210,7 +229,6 @@ p1 <- ggplot() +
   labs(y = "Asking price",
        x = "Date")
 p1
-
 ## M:Room Interaction ----------------------------------------------------------------
 
 nu_data <- expand.grid(
@@ -218,7 +236,7 @@ nu_data <- expand.grid(
   lon = median(df$lon),
   type = "detached",
   epc = "c",
-  tax = "c",
+  tax = "e",
   rooms = seq(min(df$rooms), max(df$rooms[df$price < 1500000]), length.out = 25),
   beds = median(df$beds),
   baths = median(df$baths),
@@ -241,7 +259,7 @@ p4 <- ggplot() +
   labs(y = "Square meters",
        x = "Rooms",
        fill = "Expected\nprice")
-p4
+
 ## House type --------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -254,7 +272,7 @@ nu_data <- data.frame(
   living = median(df$living),
   sqmt = median(df$sqmt),
   epc = "c",
-  tax = "c",
+  tax = "e",
   days_since = median(df$days_since)
 )
 
@@ -269,7 +287,7 @@ p5 <- ggplot() +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking price",
        x = "Square meters")
-p5
+
 ## Baths ----------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -277,7 +295,7 @@ nu_data <- data.frame(
   lon = median(df$lon),
   type = "detached",
   epc = "c",
-  tax = "c",
+  tax = "e",
   rooms = median(df$rooms),
   beds = median(df$beds),
   baths = seq(min(df$baths), max(df$baths), length.out = 25),
@@ -296,28 +314,31 @@ p6 <- ggplot() +
   # geom_hline(yintercept = 250000, linetype = 2) +
   geom_ribbon(data = nu_data, aes(x = baths, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = baths, y = fit)) +
-  scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "Bathrooms")
-p6
+
 ## Space ------------------------------------------------------------
+
+
+# Aberdeenshire far -------------------------------------------------------
+
 
 # get map of whole region for plotting
 lon_bar <- (min(df$lon, na.rm = TRUE) + max(df$lon, na.rm = TRUE))/2
 lat_bar <- (min(df$lat, na.rm = TRUE) + max(df$lat, na.rm = TRUE))/2
 
 abdnshire <- get_map(location = c(lon_bar, lat_bar), 
-                zoom = 9, 
-                maptype = "hybrid", 
-                source = "google", 
-                messaging = FALSE)
+                     zoom = 8, 
+                     maptype = "hybrid", 
+                     source = "google", 
+                     messaging = FALSE)
 
 nu_data <- expand.grid(
   lat = seq(min(df$lat), max(df$lat), length.out = 200),
-  lon = seq(min(df$lon), max(df$lon), length.out = 200),
+  lon = seq(min(df$lon)-0.1, max(df$lon), length.out = 200),
   type = "detached",
   epc = "c",
-  tax = "c",
+  tax = "e",
   rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
@@ -336,17 +357,69 @@ nu_data$fit[exclude.too.far(
   df$lat, df$lon,
   dist = 0.04)] <- NA
 
-p7 <- ggmap(abdnshire) +
-  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit)) +
-  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white") +
-  geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.5) +
+nu_data <- nu_data[complete.cases(nu_data),]
+
+p7.1 <- ggmap(abdnshire) +
+  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), alpha = 0.6) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", size = 0.5) +
+  #geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.1) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   #coord_sf() +
   labs(x = "Longitude",
        y = "Latitude",
-       fill = "Expected\nprice")
-p7
+       fill = "Expected\nprice (£)") +
+  sbsvoid_theme()
+p7.1
 
+# Aberdeenshire close -----------------------------------------------------
+
+# get map of whole region for plotting
+lon_bar <- (min(df$lon, na.rm = TRUE) + max(df$lon, na.rm = TRUE))/2
+lat_bar <- (min(df$lat, na.rm = TRUE) + max(df$lat, na.rm = TRUE))/2
+
+abdnshire <- get_map(location = c(lon_bar, lat_bar), 
+                zoom = 9, 
+                maptype = "hybrid", 
+                source = "google", 
+                messaging = FALSE)
+
+nu_data <- expand.grid(
+  lat = seq(min(df$lat), max(df$lat), length.out = 200),
+  lon = seq(min(df$lon)-0.1, max(df$lon), length.out = 200),
+  type = "detached",
+  epc = "c",
+  tax = "e",
+  rooms = median(df$rooms),
+  beds = median(df$beds),
+  baths = median(df$baths),
+  living = median(df$living),
+  sqmt = median(df$sqmt),
+  days_since = median(df$days_since)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data$fit <- prds$fit
+nu_data$low <- prds$fit - prds$se.fit * 1.96
+nu_data$upp <- prds$fit + prds$se.fit * 1.96
+
+nu_data$fit[exclude.too.far(
+  nu_data$lat, nu_data$lon,
+  df$lat, df$lon,
+  dist = 0.04)] <- NA
+
+nu_data <- nu_data[complete.cases(nu_data),]
+
+p7 <- ggmap(abdnshire) +
+  geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), alpha = 0.6) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", size = 0.5) +
+  #geom_point(data = df, aes(x = lon, y = lat), colour = "white", size = 0.1) +
+  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
+  #coord_sf() +
+  labs(x = "Longitude",
+       y = "Latitude",
+       fill = "Expected\nprice (£)") +
+  sbsvoid_theme()
+p7
 ## Aberdeen ----------------------------------------------------------------
 
 min_lon <- -2.25
@@ -361,11 +434,11 @@ abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565),
                 messaging = FALSE)
 
 nu_data <- expand.grid(
-  lat = seq(min_lat, max_lat, length.out = 50),
-  lon = seq(min_lon, max_lon, length.out = 50),
+  lat = seq(min_lat, max_lat, length.out = 200),
+  lon = seq(min_lon, max_lon, length.out = 200),
   type = "detached",
   epc = "c",
-  tax = "c",
+  tax = "e",
   rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
@@ -384,17 +457,19 @@ nu_data$fit[exclude.too.far(
   df$lat, df$lon,
   dist = 0.1)] <- NA
 
+nu_data <- nu_data[complete.cases(nu_data),]
+
 p8 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = lon , y = lat, fill = fit), na.rm = TRUE, alpha = 0.6) +
-  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", binwidth = 10000) +
-  geom_point(data = df[df$lat > min_lat & df$lat < max_lat &
-                         df$lon > min_lon & df$lon < max_lon,], aes(x = lon, y = lat), colour = "white", size = 0.5) +
+  geom_contour(data = nu_data, aes(x = lon , y = lat, z = fit), colour = "white", size = 0.5) +
+  # geom_point(data = df[df$lat > min_lat & df$lat < max_lat &
+  #                        df$lon > min_lon & df$lon < max_lon,], aes(x = lon, y = lat), colour = "white", size = 0.1) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   #coord_sf() +
   labs(x = "Longitude",
        y = "Latitude",
-       fill = "Expected\nprice")
-p8
+       fill = "Expected\nprice (£)") +
+  sbsvoid_theme()
 
 ## EPC ------------------------------------------------------------
 
@@ -403,7 +478,7 @@ nu_data <- data.frame(
   lon = median(df$lon),
   type = "detached",
   epc = unique(df$epc),
-  tax = "c",
+  tax = "e",
   rooms = median(df$rooms),
   beds = median(df$beds),
   baths = median(df$baths),
@@ -424,7 +499,7 @@ p9 <- ggplot() +
   #scale_y_continuous(limits = c(0,NA), labels = scales::comma) +
   labs(y = "Asking price",
        x = "EPC")
-p9
+
 ## Tax ------------------------------------------------------------
 
 nu_data <- data.frame(
@@ -454,23 +529,25 @@ p10 <- ggplot() +
   #scale_colour_brewer(palette = "Dark2", direction = -1) +
   labs(y = "Asking price",
        x = "Tax band")
-p10
+
 ## Predicted versus response -----------------------------------------------
 
-sig <- sigma(m1)
+df$low1 <- 0 - sigma(m1) + df$price
+df$upp1 <- 0 + sigma(m1) + df$price
+df$low2 <- 0 - 2 * sigma(m1) + df$price
+df$upp2 <- 0 + 2 * sigma(m1) + df$price
 
 p11 <- ggplot(df) +
-  geom_point(aes(x = expect, y = price, colour = over), size = 3) +
+  geom_ribbon(aes(x = price, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
+  geom_ribbon(aes(x = price, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
+  geom_point(aes(x = price, y = expect), size = 1) +
   geom_abline(intercept = 0, slope = 1, colour = "white") +
-  geom_abline(intercept = 1.96 * sig, slope = 1, linetype = 2, colour = "white") +
-  geom_abline(intercept = 1.96 * -sig, slope = 1, linetype = 2, colour = "white") +
-  scale_y_continuous(limits = c(NA,1000000), labels = scales::comma) +
-  scale_x_continuous(limits = c(NA,1000000), labels = scales::comma) +
-  scale_colour_brewer(palette = "Dark2") +
-  labs(x = "Expected price",
-       y = "Listed price",
-       colour = "Pricing")
-p11  
+  scale_x_continuous(labels = scales::comma, breaks = seq(from = 0, to = max(df$price), by = 100000)) +
+  scale_y_continuous(labels = scales::comma, breaks = seq(from = 0, to = max(df$price), by = 100000)) +
+  labs(x = "Listed price (£)",
+       y = "Predicted price (£)") +
+  coord_fixed() +
+  sbs_theme()
 
 design <- "
 CCDD
@@ -480,11 +557,11 @@ GGHH
 "
 
 p_maps <- p7 / p8 
+ggsave("C:/abdn_app/www/plot_maps.png", plot = p_maps)
 
 p_figs <- p4 + p1 + p5 + p6 + p9 + p10 + p11 + plot_layout(design = design)
-
-ggsave("C:/abdn_app/www/plot_maps.png", plot = p_maps)
-ggsave("C:/abdn_app/www/plot_figs.png", plot = p_figs)
+p_figs
+# ggsave("C:/abdn_app/www/plot_figs.png", plot = p_figs)
 
 
 
