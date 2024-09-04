@@ -196,6 +196,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £245k [£225k-£266k] (n = 873) Detached (more k for GP and time)
 # £245k [£225k-£266k] (n = 913) Detached
 # £246k [£226k-£265k] (n = 983) Detached
+# £249k [£229k-£270k] (n = 1067) Detached
 
 # Figures -----------------------------------------------------------------
 
@@ -532,18 +533,18 @@ p10 <- ggplot() +
 
 ## Predicted versus response -----------------------------------------------
 
-df$low1 <- 0 - sigma(m1) + df$price
-df$upp1 <- 0 + sigma(m1) + df$price
-df$low2 <- 0 - 2 * sigma(m1) + df$price
-df$upp2 <- 0 + 2 * sigma(m1) + df$price
+df$low1 <- 0 - sigma(m1) + df$expect
+df$upp1 <- 0 + sigma(m1) + df$expect
+df$low2 <- 0 - 2 * sigma(m1) + df$expect
+df$upp2 <- 0 + 2 * sigma(m1) + df$expect
 
 p11 <- ggplot(df) +
-  geom_ribbon(aes(x = price, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
-  geom_ribbon(aes(x = price, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
-  geom_point(aes(x = price, y = expect), size = 1) +
+  geom_ribbon(aes(x = expect, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
+  geom_ribbon(aes(x = expect, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
+  geom_point(aes(x = expect, y = price), size = 1) +
   geom_abline(intercept = 0, slope = 1, colour = "white") +
-  scale_x_continuous(labels = scales::comma, breaks = seq(from = 0, to = max(df$price), by = 100000)) +
-  scale_y_continuous(labels = scales::comma, breaks = seq(from = 0, to = max(df$price), by = 100000)) +
+  scale_x_continuous(labels = scales::comma, breaks = seq(from = 0, to = 1000000, by = 100000)) +
+  scale_y_continuous(labels = scales::comma, breaks = seq(from = 0, to = 1000000, by = 100000)) +
   labs(x = "Listed price (£)",
        y = "Predicted price (£)") +
   coord_fixed() +
