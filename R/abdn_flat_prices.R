@@ -4,7 +4,7 @@ library(patchwork)
 library(mgcv)          # For non-linear models
 library(dplyr)
 library(leaflet)
-library(ggmap); register_google(key = "AIzaSyDZKT-rGxUv21PxNFO4elG-n4m31gOqn_M")
+library(ggmap)
 library(lubridate)
 library(htmlwidgets)
 library(geosphere)
@@ -13,6 +13,10 @@ library(jsonlite)
 library(here)
 source("sbs_theme.R")
 theme_set(sbs_theme())
+
+dotenv::load_dot_env()
+register_google(key = Sys.getenv("GOOGLE_MAPS_API_KEY"))
+api_key <- Sys.getenv("GOOGLE_MAPS_API_KEY")
 
 
 df <- read_sheet("https://docs.google.com/spreadsheets/d/1ay5qIHe6MK1ZLZLLDDgAVWbfnvFjc2wX2HWLeto2LKw/edit?usp=sharing",
