@@ -8,6 +8,8 @@ library(patchwork)
 library(mgcv)          
 library(dplyr)
 library(leaflet)
+library(htmlwidgets)
+library(here)
 library(ggmap)
 library(lubridate)
 library(sf)
@@ -218,7 +220,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £249k [£229k-£270k] (n = 1067) Detached
 # £251k [£230k-£273k] (n = 1125) Detached
 # £262k [£236k-£289k] (n = 1215) Detached (included urban rural designations to model)
-
+# £265k [£239k-£292k] (n = 1309) Detached
 
 ## Over time ---------------------------------------------------------------
 
