@@ -5,8 +5,11 @@
 library(httr)
 library(jsonlite)
 library(dplyr)
+library(tidyr)
 library(sf)
 library(lubridate)
+library(stringr)
+library(purrr)
 
 # URL ---------------------------------------------------------------------
 url <- "https://api.aspc.co.uk/Property/GetProperties?PrimaryPropertyType=Buy&SortBy=PublishedDesc&LastUpdated=AddedAnytime&PropertyType=Residential&HasGarage=false&HasDoubleGarage=false&HasGarden=false&IsNewBuild=false&HasGreenEnergy=false&HasOnStreetParking=false&HasOffStreetParking=false&HasElectricVehicleChargePoint=false&HasGrannyFlat=false&IsSelfContained=false&HasGroundFloorBedroomBathroom=false&IsLowCostHome=false&IsDevelopmentOpportunity=false&HasLand=false&FloorAreaMin=&ExcludeUnderOffer=false&IncludeClosedProperties=true&ClosedDatesSearch=14&ByFixedPriceOnly=false&ResultMode=NONE&ResultView=LIST&search-origin=search-results&Sort=PublishedDesc&Page=1&PageSize=12"
@@ -42,52 +45,133 @@ fetch_properties <- function(url) {
 file_path <- "property_data.csv"
 
 if (file.exists(file_path)) {
-  existing_data <- read.csv(file_path)
+  existing_data <- read.csv(file_path, stringsAsFactors = FALSE)
 } else {
   existing_data <- data.frame()
 }
 
+existing_data$DateAdded <- as.Date(existing_data$DateAdded)
+
 # Scraping ----------------------------------------------------------------
 all_properties <- list()
 
-for (i in 1:400) {  # 400 given 12 properties per page and ca. 4000-5000 properties
+n_props <- 500  # Number of properties currently listed
+
+# For loop to go through each page
+for (i in 1:ceiling(n_props / 12)) {  # divide by 12 given 12 properties shown per page
   print(paste("Fetching page:", i))
   updated_url <- gsub("Page=1", paste0("Page=", i), url)
   properties_df <- fetch_properties(updated_url)
+  
   if (!is.null(properties_df)) {
-    properties_df$DateAdded <- Sys.Date()
-    if ("Location.Spatial.Geography.WellKnownText" %in% colnames(properties_df)) {
-      lon_lat <- t(sapply(properties_df$Location.Spatial.Geography.WellKnownText, extract_coordinates))
-      colnames(lon_lat) <- c("Longitude", "Latitude")
-      properties_df <- cbind(properties_df, lon_lat)
-      utm_coords <- t(apply(lon_lat, 1, convert_to_utm))
-      colnames(utm_coords) <- c("UTM_Easting", "UTM_Northing")
-      properties_df <- cbind(properties_df, utm_coords)
-    }
-    if (nrow(existing_data) > 0) {
-      new_properties <- anti_join(properties_df, existing_data, 
-                                  by = c("PropertyID", "Price"))
-    } else {
-      new_properties <- properties_df
-    }
-    if (nrow(new_properties) > 0) {
-      all_properties[[length(all_properties) + 1]] <- new_properties
-    }
+    properties_df$DateAdded <- Sys.Date()  # Add DateAdded to new properties
+    
+    # Store the fetched properties into the all_properties list
+    all_properties[[length(all_properties) + 1]] <- properties_df
   }
+  # Short pause to prevent 404
   Sys.sleep(1)
 }
 
-# Merge each page into one df ---------------------------------------------
+# Combine all properties into one data frame --------------------------------
 if (length(all_properties) > 0) {
   new_properties_df <- bind_rows(all_properties)
-  final_data <- bind_rows(existing_data, new_properties_df)
 } else {
-  print("No new properties found.")
+  new_properties_df <- data.frame()  # Ensure it is a data frame even if no properties found
 }
 
-final_data <- final_data[,c(1, 3, 4, 5, 6, 8, 11, 13, 23, 24, 27, 33)]
-colnames(final_data) <- c("id", "type", "bedrooms", "bathrooms", "living", "price", "under_offer", "house", "floor_area", "resident", "solicitor", "date_added")
-head(final_data)
-nrow(final_data)
+# Process new properties only if there are any new ones
+if (nrow(new_properties_df) > 0) {
+  
+  # Remove photos and sort out SQL nested dataframes
+  new_properties_df <- new_properties_df |>
+    select(-Photos) |>
+    unnest(Location) |>  # Unnest the 'Location' column
+    unnest(Spatial) |> 
+    unnest(Geography) |> 
+    unnest(SolicitorAccount, names_sep = "_")
+  
+  # Processing new properties
+  new_properties_df <- new_properties_df |>
+    mutate(
+      # Check if "Garden" is mentioned
+      has_garden = ifelse(str_detect(CategorisationDescription, "Garden"), "Yes", "No"),
+      
+      # Extract the Council Tax Band (CT Band) value
+      council_tax_band = str_extract(CategorisationDescription, "(?i)CT\\s*band\\s*-\\s*([A-Z])") |>
+        str_extract("[A-Z]$"),  # Extract the letter just before the closing parenthesis
+      council_tax_band = ifelse(council_tax_band == "T", NA, council_tax_band),
+      
+      # Extract the EPC Band value
+      epc_band = str_extract(CategorisationDescription, "(?i)EPC\\s*band\\s*-\\s*([A-Z])") |>
+        str_extract("[A-Z]$"),  # Extract the letter just before the closing parenthesis
+      epc_band = ifelse(epc_band == "T", NA, epc_band),
+      
+      # Count the number of floors based on keywords (assuming max floors is 2)
+      num_floors = case_when(
+        str_detect(CategorisationDescription, "Ground flr") & str_detect(CategorisationDescription, "1st flr") ~ 2,
+        str_detect(CategorisationDescription, "Ground flr") ~ 1,
+        TRUE ~ 1  # Default to 1 if no floor indicators are found
+      ),
+      
+      # Check if Parking is mentioned
+      parking_type = case_when(
+        str_detect(CategorisationDescription, "Double Garage") ~ "Double Garage",
+        str_detect(CategorisationDescription, "Garage") ~ "Garage",
+        str_detect(CategorisationDescription, "Parking") ~ "Parking",
+        TRUE ~ "No parking"  # Default if none are found
+      ),
+      
+      # Tidy house type term
+      HouseType = case_when(
+        HouseFormat == 1 ~ "Detached",
+        HouseFormat == 2 ~ "Semi-Detached",
+        HouseFormat == 3 ~ "Terraced",
+        TRUE ~ NA_character_  # In case of unexpected values
+      ),
+      
+      # Ensure DateAdded is of date type
+      DateAdded = as.Date(DateAdded)  # Convert to Date type
+    )
+  
+  # Extract coordinates from WellKnownText and convert to UTM
+  new_properties_df <- new_properties_df |>
+    mutate(
+      Coordinates = map(WellKnownText, extract_coordinates),
+      Latitude = sapply(Coordinates, function(x) x[2]),
+      Longitude = sapply(Coordinates, function(x) x[1])
+    ) |> 
+    # Convert to UTM
+    mutate(
+      UTM_Coordinates = map(Coordinates, convert_to_utm),
+      UTM_Easting = sapply(UTM_Coordinates, function(x) x[1]),
+      UTM_Northing = sapply(UTM_Coordinates, function(x) x[2])
+    )
+  
+  # Remove coordinates (just to tidy dataset somewhat)
+  new_properties_df <- new_properties_df |>
+    select(-Coordinates, -UTM_Coordinates)
+  
+  # Reconstruct URL for each property
+  new_properties_df <- new_properties_df |>
+    mutate(
+      AddressLineDash = str_replace_all(AddressLine1, " ", "-"),  # Replace spaces with hyphens
+      property_url = paste0("https://www.aspc.co.uk/search/property/", Id, "/", AddressLineDash, "/", City, "/")
+    )
+  
+  # Handle FloorArea NA
+  new_properties_df$FloorArea[new_properties_df$FloorArea == 0] <- NA
+  
+  # Perform anti_join with existing data to filter out existing properties
+  if (nrow(existing_data) > 0) {
+    new_properties_df <- anti_join(new_properties_df, existing_data, by = c("Id", "Price"))
+  }
+  
+  # Combine new properties with existing data
+  final_data <- bind_rows(existing_data, new_properties_df)
+} else {
+  final_data <- existing_data  # Keep existing data if no new properties found
+}
 
+# Write final data
 write.csv(final_data, file_path, row.names = FALSE)
