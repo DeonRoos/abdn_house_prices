@@ -17,6 +17,9 @@ library(httr)
 library(jsonlite)
 library(dotenv)
 library(stringr)
+library(tidyr)
+library(dplyr)
+library(sf)
 
 dotenv::load_dot_env()
 register_google(key = Sys.getenv("GOOGLE_MAPS_API_KEY"))
@@ -43,8 +46,9 @@ df <- df |>
          -BookingUrl, -IsSellerManaged,
          -CategorisationDescription)
 
-#df <- df[df$AddressLine1 != "Blackbriggs",] # Removing property that is 3 houses
+df <- df[df$AddressLine1 != "Blackbriggs",] # Removing property that is 3 houses
 df <- df[!duplicated(paste(df$AddressLine1, df$Price)),] # Remove duplicates
+df <- df[df$Latitude > 56.077553904659,] # Remove single Edinburgh house
 df$rooms <- df$Bedrooms + df$PublicRooms
 df$date <- as.Date(df$DateAdded)
 earliest_date <- min(df$date)
@@ -59,43 +63,6 @@ df$HouseType <- ifelse(is.na(df$HouseType), "Flat", df$HouseType)
 df <- df |> 
   drop_na()
 
-# # Commute time ------------------------------------------------------------
-# origin <- "57.168010390142236,-2.106429897150815" # Aberdeen University
-# bioss <- "57.13310577362852,-2.158274358135975" # BioSS location
-# 
-# get_commute_info <- function(Latitude, Longitude, api_key, origin) {
-#   url <- paste0(
-#     "https://maps.googleapis.com/maps/api/distancematrix/json?units=metric",
-#     "&origins=", origin,
-#     "&destinations=", Latitude, ",", Longitude,
-#     "&mode=driving",
-#     "&key=", api_key
-#   )
-#   response <- GET(url)
-#   content <- fromJSON(content(response, "text"), fLatitudeten = TRUE)
-#   if (!is.null(content$rows$elements[[1]]$duration.value) && !is.null(content$rows$elements[[1]]$distance.value)) {
-#     commute_time <- content$rows$elements[[1]]$duration.value
-#     commute_distance <- content$rows$elements[[1]]$distance.value
-#     return(c(commute_time, commute_distance))
-#   } else {
-#     return(c(NA, NA))
-#   }
-# }
-# 
-# commute_info <- mapply(get_commute_info, df$Latitude, df$Longitude, MoreArgs = list(api_key = api_key, origin = origin))
-# commute_info <- as.data.frame(t(commute_info))
-# colnames(commute_info) <- c("commute_time", "commute_distance")
-# df <- cbind(df, commute_info)
-# df$commute_time_uni <- df$commute_time / 60
-# df$commute_distance_uni <- round(df$commute_distance / 1000, digits = 1)
-# 
-# commute_info <- mapply(get_commute_info, df$Latitude, df$Longitude, MoreArgs = list(api_key = api_key, origin = bioss))
-# commute_info <- as.data.frame(t(commute_info))
-# colnames(commute_info) <- c("commute_time_bioss", "commute_distance_bioss")
-# df <- cbind(df, commute_info)
-# df$commute_time_bioss <- df$commute_time_bioss / 60
-# df$commute_distance_bioss <- round(df$commute_distance_bioss / 1000, digits = 1)
-
 # Price per square meter --------------------------------------------------
 df$Price_FloorArea <- df$Price / df$FloorArea
 
@@ -106,8 +73,8 @@ df_sf <- st_as_sf(df, coords = c("Longitude", "Latitude"), crs = 4326)
 urban_rural_shp <- st_transform(urban_rural_shp, crs = st_crs(df_sf))
 df <- as.data.frame(st_join(df_sf, urban_rural_shp, left = TRUE))
 coordinates <- st_coordinates(df_sf)
-df$Longitude <- coordinates[, 1]  # Longitudegitude (X)
-df$Latitude <- coordinates[, 2]  # Latitudeitude (Y)
+df$Longitude <- coordinates[, 1]  # Longitude (X)
+df$Latitude <- coordinates[, 2]  # Latitude (Y)
 df$geometry <- NULL
 
 # EDA ---------------------------------------------------------------------
@@ -115,6 +82,18 @@ df$geometry <- NULL
 ggplot(df, aes(x = Price, fill = HouseType)) +
   geom_density(alpha = 0.6) +
   labs(x = "Price", y = "Density")
+
+df |> 
+  group_by(date, HouseType) |> 
+  summarise(count = n(), .groups = "drop") |> 
+  ggplot(aes(x = date, y = count, color = HouseType)) +
+  geom_point() +
+  geom_line(size = 0.5) +
+  labs(
+    x = "Date",
+    y = "Number of Listings",
+    color = "House HouseType"
+  )
 
 df |> 
   mutate(date = as.Date(date, format = "%Y-%m-%d")) |> 
@@ -143,21 +122,26 @@ ggplot(df, aes(x = epc_band, y = Price, fill = HouseType)) +
   labs(x = "epc_band", y = "Price")
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
-mp <- list(c(3, 5000, 1), c(3, 5000, 1))
+mp <- list(c(3, 0.1, 1), c(3, 0.1, 1))
 df$HouseType <- factor(df$HouseType)
 df$epc_band <- factor(df$epc_band)
 df$council_tax_band <- factor(df$council_tax_band)
 df$UR8Name <- factor(df$UR8Name)
 
 m1 <- gam(Price ~ 
-            te(UTM_Easting, UTM_Northing, k = 23, m = mp, bs = "gp") +
-            te(FloorArea, rooms, k = 8, bs = "cr") +
+            te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
+            #te(FloorArea, rooms, k = 8, bs = "cr") +
+            s(FloorArea, k = 8, bs = "tp") +
+            s(rooms, k = 8, bs = "tp") +
             #s(days_since, by = HouseType, k = 10, bs = "cr") +
-            # UR8Name : HouseType +
-            # UR8Name + 
+            UR8Name : HouseType +
+            UR8Name +
             HouseType + 
             Bathrooms + 
             epc_band + 
+            has_garden +
+            num_floors +
+            parking_type +
             council_tax_band,
           data = df, method = "REML")
 
@@ -195,8 +179,15 @@ dream_house <- data.frame(
   Longitude = -2.269886390197508,
   HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  rooms = 4, Bathrooms = 2, epc_band = "C", council_tax_band = "D", FloorArea = 100,
-  days_since = as.numeric(ymd(Sys.Date()) - earliest_date)
+  rooms = 4, 
+  Bathrooms = 2, 
+  epc_band = "C", 
+  council_tax_band = "D", 
+  FloorArea = 100,
+  days_since = as.numeric(ymd(Sys.Date()) - earliest_date),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = dream_house, se.fit = TRUE)
@@ -244,7 +235,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £251k [£230k-£273k] (n = 1125) Detached
 # £262k [£236k-£289k] (n = 1215) Detached (included urban rural designations to model)
 # £265k [£239k-£292k] (n = 1309) Detached
-# £267k [£249k-£286k] (n = 4472) Detached (now scrapping from ASPC)
+# £246k [£228k-£264k] (n = 4281) Detached (now scrapping from ASPC)
 
 ## Over time ---------------------------------------------------------------
 
@@ -252,15 +243,18 @@ nu_data <- expand.grid(
   Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
   HouseType = unique(df$HouseType),
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
   UR8Name = "Accessible Rural Areas",
-  days_since = seq(min(df$days_since), max(df$days_since), length.out = 25)
+  days_since = seq(min(df$days_since), max(df$days_since), length.out = 25),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 nu_data$date <- min(df$date) + nu_data$days_since
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -278,7 +272,7 @@ p1
 ## M:Room Interaction ----------------------------------------------------------------
 
 nu_data <- expand.grid(
-  Latitude = median(df$Latitude),
+  Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
   HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
@@ -289,7 +283,10 @@ nu_data <- expand.grid(
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = seq(min(df$FloorArea), max(df$FloorArea), length.out = 25),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data)
@@ -312,16 +309,19 @@ p2
 nu_data <- data.frame(
   Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = c("semi", "detached", "terrace"),
+  HouseType = c("Semi-Detached", "Detached", "Terraced", "Flat"),
   UR8Name = "Accessible Rural Areas",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  epc_band = "c",
-  council_tax_band = "e",
-  days_since = median(df$days_since)
+  epc_band = "C",
+  council_tax_band = "E",
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -340,16 +340,19 @@ p3
 nu_data <- expand.grid(
   Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = c("semi", "detached", "terrace"),
+  HouseType = c("Semi-Detached", "Detached", "Terraced", "Flat"),
   UR8Name = unique(df$UR8Name),
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  epc_band = "c",
-  council_tax_band = "e",
-  days_since = median(df$days_since)
+  epc_band = "C",
+  council_tax_band = "E",
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -374,18 +377,21 @@ p4
 ## Bathrooms ----------------------------------------------------------------
 
 nu_data <- data.frame(
-  Latitude = median(df$Latitude),
+  Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = "detached",
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = seq(min(df$Bathrooms), max(df$Bathrooms), length.out = 25),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -403,18 +409,21 @@ p5
 ## epc_band ------------------------------------------------------------
 
 nu_data <- data.frame(
-  Latitude = median(df$Latitude),
+  Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = "detached",
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
   epc_band = unique(df$epc_band),
-  council_tax_band = "e",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -431,18 +440,21 @@ p6
 ## council_tax_band ------------------------------------------------------------
 
 nu_data <- data.frame(
-  Latitude = median(df$Latitude),
+  Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = "detached",
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  epc_band = "c",
+  epc_band = "C",
   council_tax_band = unique(df$council_tax_band),
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -461,18 +473,21 @@ p7
 ## Urban|Rural -------------------------------------------------------------
 
 nu_data <- data.frame(
-  Latitude = median(df$Latitude),
+  Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = "detached",
+  HouseType = "Detached",
   UR8Name = unique(df$UR8Name),
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -532,17 +547,20 @@ abdnshire <- get_map(location = c(Longitude_bar, Latitude_bar),
 
 nu_data <- expand.grid(
   Latitude = seq(min(df$Latitude), max(df$Latitude), length.out = 200),
-  Longitude = seq(min(df$Longitude)-0.1, max(df$Longitude), length.out = 200),
-  HouseType = "detached",
+  Longitude = seq(min(df$Longitude), max(df$Longitude), length.out = 200),
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -557,7 +575,7 @@ nu_data <- nu_data[complete.cases(nu_data),]
 map1 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
-  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, lineHouseType = 2, binwidth = 25000) +
+  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitudegitude",
        y = "Latitudeitude",
@@ -579,17 +597,20 @@ abdnshire <- get_map(location = c(Longitude_bar, Latitude_bar),
 
 nu_data <- expand.grid(
   Latitude = seq(min(df$Latitude), max(df$Latitude), length.out = 200),
-  Longitude = seq(min(df$Longitude)-0.1, max(df$Longitude), length.out = 200),
-  HouseType = "detached",
+  Longitude = seq(min(df$Longitude), max(df$Longitude), length.out = 200),
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -604,7 +625,7 @@ nu_data <- nu_data[complete.cases(nu_data),]
 map2 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
-  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, lineHouseType = 2, binwidth = 25000) +
+  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitudegitude",
        y = "Latitudeitude",
@@ -628,16 +649,19 @@ abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565),
 nu_data <- expand.grid(
   Latitude = seq(min_Latitude, max_Latitude, length.out = 200),
   Longitude = seq(min_Longitude, max_Longitude, length.out = 200),
-  HouseType = "detached",
+  HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  epc_band = "c",
-  council_tax_band = "e",
+  epc_band = "C",
+  council_tax_band = "E",
   rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  days_since = median(df$days_since)
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -645,14 +669,14 @@ nu_data$fit <- predict(m1, newdata = nu_data)
 nu_data$fit[exclude.too.far(
   nu_data$Latitude, nu_data$Longitude,
   df$Latitude, df$Longitude,
-  dist = 0.1)] <- NA
+  dist = 0.05)] <- NA
 
 nu_data <- nu_data[complete.cases(nu_data),]
 
 map3 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), na.rm = TRUE, alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
-  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, lineHouseType = 2, binwidth = 25000) +
+  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitudegitude",
        y = "Latitudeitude",
@@ -687,14 +711,14 @@ abdn_map_Price <- leaflet(df) %>%
   addProviderTiles(provider = "OpenStreetMap") %>%
   addAwesomeMarkers(
     data = df,
-    lng = ~Longitude, Latitude = ~Latitude,
+    #lng = ~Longitude, Latitude = ~Latitude,
     icon = ~ pricing[over],
     label = ~paste0(
-      house, " (£", abs(round(Price / 1000, digits = 0)), "k)"
+      AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"
     ),
     popup = ~paste(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
-      "<span style='font-size: 20px;'><b>", house, "</b></span>",
+      "<span style='font-size: 20px;'><b>", AddressLine1, "</b></span>",
       "<br><span style='font-size: 10px;'><b>", UR8Name, "</b></span>",
       "<hr>",
       "<span style='font-size: 16px;'><b>Price</b></span>",
@@ -718,32 +742,36 @@ abdn_map_Price <- leaflet(df) %>%
       "<table style='width: 100%; border-collapse: collapse;'>",
       "<tr><td style='width: 50%; vertical-align: top;'>",
       Bedrooms, " bedrooms", "<br>",
-      PublicRooms, " PublicRooms rooms", "<br>",
+      PublicRooms, " living rooms", "<br>",
       Bathrooms, " bathrooms", "<br>",
       "</td><td style='width: 50%; vertical-align: top;'>",
       FloorArea, " m<sup>2</sup>", "<br>",
-      "epc_band: ", toupper(epc_band), "<br>",
-      "council_tax_band: ", toupper(council_tax_band), "<br>",
+      "EPC: ", toupper(epc_band), "<br>",
+      "Council Tax: ", toupper(council_tax_band), "<br>",
+      # "<tr><td style='width: 50%; vertical-align: top;'>",
+      # "Garden": has_garden, "<br>",
+      # "Parking:", parking, "<br>",
+      # "Number of floors", num_floors, "<br>",
       "</td></tr>",
       "</table>",
       "<hr>",
-      "<span style='font-size: 16px;'><b>Commutes</b></span>",
-      "<table style='width:100%;'>",
-      "<tr>",
-      "<td><b>To Aberdeen Uni</b></td>",
-      "<td><b>To BioSS</b></td>",
-      "</tr>",
-      "<tr>",
-      "<td>Time: ", round(commute_time_uni), " minutes</td>",
-      "<td>Time: ", round(commute_time_bioss), " minutes</td>",
-      "</tr>",
-      "<tr>",
-      "<td>Distance: ", commute_distance_uni, " km</td>",
-      "<td>Distance: ", commute_distance_bioss, " km</td>",
-      "</tr>",
-      "</table>",
-      "<hr>",
-      "<br><a href='", link, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
+      # "<span style='font-size: 16px;'><b>Commutes</b></span>",
+      # "<table style='width:100%;'>",
+      # "<tr>",
+      # "<td><b>To Aberdeen Uni</b></td>",
+      # "<td><b>To BioSS</b></td>",
+      # "</tr>",
+      # "<tr>",
+      # "<td>Time: ", round(commute_time_uni), " minutes</td>",
+      # "<td>Time: ", round(commute_time_bioss), " minutes</td>",
+      # "</tr>",
+      # "<tr>",
+      # "<td>Distance: ", commute_distance_uni, " km</td>",
+      # "<td>Distance: ", commute_distance_bioss, " km</td>",
+      # "</tr>",
+      # "</table>",
+      # "<hr>",
+      "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
       "</div>"
     )
   )
