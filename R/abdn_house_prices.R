@@ -236,6 +236,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £262k [£236k-£289k] (n = 1215) Detached (included urban rural designations to model)
 # £265k [£239k-£292k] (n = 1309) Detached
 # £246k [£228k-£264k] (n = 4281) Detached (now scrapping from ASPC)
+# £241k [£225k-£258k] (n = 4305) Detached
 
 ## Over time ---------------------------------------------------------------
 
