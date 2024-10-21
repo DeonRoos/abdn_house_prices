@@ -86,6 +86,7 @@ ggplot(df, aes(x = Price, fill = HouseType)) +
 df |> 
   group_by(date, HouseType) |> 
   summarise(count = n(), .groups = "drop") |> 
+  filter(date != min(date)) |> 
   ggplot(aes(x = date, y = count, color = HouseType)) +
   geom_point() +
   geom_line(size = 0.5) +
@@ -97,6 +98,7 @@ df |>
 
 df |> 
   mutate(date = as.Date(date, format = "%Y-%m-%d")) |> 
+  filter(date != min(date)) |> 
   mutate(fortnight = floor_date(date, unit = "week") - days(1) + weeks((as.integer(difftime(date, floor_date(date, unit = "week"), units = "days")) %/% 14) * 2)) |> 
   group_by(fortnight, HouseType) |> 
   summarise(count = n(), .groups = 'drop') |> 
@@ -122,31 +124,49 @@ ggplot(df, aes(x = epc_band, y = Price, fill = HouseType)) +
   labs(x = "epc_band", y = "Price")
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
-mp <- list(c(3, 0.1, 1), c(3, 0.1, 1))
+mp <- list(c(3, 0.05, 1), c(3, 0.05, 1))
 df$HouseType <- factor(df$HouseType)
 df$epc_band <- factor(df$epc_band)
 df$council_tax_band <- factor(df$council_tax_band)
 df$UR8Name <- factor(df$UR8Name)
+df$has_garden <- factor(df$has_garden)
+df$num_floors <- factor(df$num_floors)
+df$parking_type <- factor(df$parking_type)
 
 m1 <- gam(Price ~ 
             te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
-            #te(FloorArea, rooms, k = 8, bs = "cr") +
-            s(FloorArea, k = 8, bs = "tp") +
-            s(rooms, k = 8, bs = "tp") +
-            #s(days_since, by = HouseType, k = 10, bs = "cr") +
+            te(FloorArea, rooms, k = 5, bs = "cr") +
+            s(days_since, by = HouseType, k = 3, bs = "cr") +
             UR8Name : HouseType +
-            UR8Name +
+            UR8Name + 
             HouseType + 
             Bathrooms + 
             epc_band + 
-            has_garden +
-            num_floors +
             parking_type +
             council_tax_band,
           data = df, method = "REML")
 
+# m1 <- gam(Price ~ 
+#             te(Longitude, Latitude, k = 20, m = mp, bs = "gp") +
+#             s(days_since, by = HouseType, k = 5, bs = "cr") +
+#             FloorArea +
+#             rooms +
+#             UR8Name +
+#             HouseType + 
+#             Bathrooms + 
+#             epc_band + 
+#             # has_garden +
+#             # num_floors +
+#             parking_type +
+#             council_tax_band,
+#           data = df, method = "REML")
+
 # Save model
 saveRDS(m1, file = "C:/abdn_app/data/model_m1.rds")
+
+summary(m1)
+gam.check(m1)
+plot(m1, all.terms = TRUE, ask = FALSE)
 
 # Predictions -------------------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
@@ -237,6 +257,8 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £265k [£239k-£292k] (n = 1309) Detached
 # £246k [£228k-£264k] (n = 4281) Detached (now scrapping from ASPC)
 # £241k [£225k-£258k] (n = 4305) Detached
+# £235k [£223k-£247k] (n = 4447) Detached (reduced k in te and mp to 0.05)
+# £246k [£225k-£267k] (n = 4757) Detached
 
 ## Over time ---------------------------------------------------------------
 
@@ -470,6 +492,39 @@ p7 <- ggplot() +
        x = "council_tax_band band")
 p7
 
+
+## Parking -------------------------------------------------------------
+
+nu_data <- data.frame(
+  Latitude = median(df$Latitude), 
+  Longitude = median(df$Longitude),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  rooms = median(df$rooms),
+  Bedrooms = median(df$Bedrooms),
+  Bathrooms = median(df$Bathrooms),
+  PublicRooms = median(df$PublicRooms),
+  FloorArea = median(df$FloorArea),
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = unique(df$parking_type)
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+
+p9 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = parking_type, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
+  geom_point(data = nu_data, aes(x = parking_type, y = fit), size = 2.5) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
+  labs(y = "Asking Price",
+       x = "parking_type")
+p9
 
 ## Urban|Rural -------------------------------------------------------------
 
@@ -756,22 +811,6 @@ abdn_map_Price <- leaflet(df) %>%
       "</td></tr>",
       "</table>",
       "<hr>",
-      # "<span style='font-size: 16px;'><b>Commutes</b></span>",
-      # "<table style='width:100%;'>",
-      # "<tr>",
-      # "<td><b>To Aberdeen Uni</b></td>",
-      # "<td><b>To BioSS</b></td>",
-      # "</tr>",
-      # "<tr>",
-      # "<td>Time: ", round(commute_time_uni), " minutes</td>",
-      # "<td>Time: ", round(commute_time_bioss), " minutes</td>",
-      # "</tr>",
-      # "<tr>",
-      # "<td>Distance: ", commute_distance_uni, " km</td>",
-      # "<td>Distance: ", commute_distance_bioss, " km</td>",
-      # "</tr>",
-      # "</table>",
-      # "<hr>",
       "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
       "</div>"
     )

@@ -55,7 +55,7 @@ existing_data$DateAdded <- as.Date(existing_data$DateAdded)
 # Scraping ----------------------------------------------------------------
 all_properties <- list()
 
-n_props <- 150  # Number of properties currently listed
+n_props <- 100  # Number of properties currently listed
 
 # For loop to go through each page
 for (i in 1:ceiling(n_props / 12)) {  # divide by 12 given 12 properties shown per page
