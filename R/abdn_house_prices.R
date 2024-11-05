@@ -2,7 +2,6 @@
 # Deon Roos
 
 # Packages ----------------------------------------------------------------
-library(googlesheets4) 
 library(ggplot2)
 library(patchwork)
 library(mgcv)          
@@ -115,13 +114,27 @@ ggplot(df, aes(x = Price, fill = UR8Name)) +
   geom_density(alpha = 0.6) +
   labs(x = "Price", y = "Density")
 
+ggplot(df, aes(x = HouseType, y = Price, fill = HouseType)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "EPC", y = "Price")
+
+ggplot(df, aes(x = City, y = Price)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "EPC", y = "Price") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
 ggplot(df, aes(x = council_tax_band, y = Price, fill = HouseType)) +
   geom_boxplot(alpha = 0.6) +
-  labs(x = "council_tax_band", y = "Price")
+  labs(x = "Tax Band", y = "Price")
+
+ggplot(df, aes(x = reorder(SolicitorAccount_Name, -Price, FUN = median), y = Price)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "Solicitor", y = "Price") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 ggplot(df, aes(x = epc_band, y = Price, fill = HouseType)) +
   geom_boxplot(alpha = 0.6) +
-  labs(x = "epc_band", y = "Price")
+  labs(x = "EPC", y = "Price")
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
 mp <- list(c(3, 0.05, 1), c(3, 0.05, 1))
@@ -132,19 +145,45 @@ df$UR8Name <- factor(df$UR8Name)
 df$has_garden <- factor(df$has_garden)
 df$num_floors <- factor(df$num_floors)
 df$parking_type <- factor(df$parking_type)
+df$City <- factor(df$City)
 
-m1 <- gam(Price ~ 
-            te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
-            te(FloorArea, rooms, k = 5, bs = "cr") +
+# m1 <- gam(Price ~ 
+#             te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
+#             te(FloorArea, rooms, k = 5, bs = "cr") +
+#             s(days_since, by = HouseType, k = 3, bs = "cr") +
+#             UR8Name : HouseType +
+#             UR8Name + 
+#             HouseType + 
+#             Bathrooms + 
+#             epc_band + 
+#             parking_type +
+#             council_tax_band,
+#           data = df, method = "REML")
+
+m1 <- bam(Price ~
+            # Temporal
             s(days_since, by = HouseType, k = 3, bs = "cr") +
-            UR8Name : HouseType +
-            UR8Name + 
-            HouseType + 
-            Bathrooms + 
-            epc_band + 
+
+            # Location
+            te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
+            UR8Name +
+
+            # House features
+            #te(FloorArea, rooms, k = 5, bs = "cr") +
+            HouseType +
+            s(FloorArea, k = 5, bs = "cr") +
+            Bedrooms +
+            PublicRooms +
+            Bathrooms +
             parking_type +
-            council_tax_band,
-          data = df, method = "REML")
+            has_garden +
+            epc_band +
+            council_tax_band +
+
+            # Admin side
+            SolicitorAccount_Name,
+          data = df,
+          method = "REML")
 
 # m1 <- gam(Price ~ 
 #             te(Longitude, Latitude, k = 20, m = mp, bs = "gp") +
@@ -166,7 +205,7 @@ saveRDS(m1, file = "C:/abdn_app/data/model_m1.rds")
 
 summary(m1)
 gam.check(m1)
-plot(m1, all.terms = TRUE, ask = FALSE)
+#plot(m1, all.terms = TRUE, ask = FALSE)
 
 # Predictions -------------------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
@@ -199,7 +238,9 @@ dream_house <- data.frame(
   Longitude = -2.269886390197508,
   HouseType = "Detached",
   UR8Name = "Accessible Rural Areas",
-  rooms = 4, 
+  #rooms = 4, 
+  Bedrooms = 2,
+  PublicRooms = 2,
   Bathrooms = 2, 
   epc_band = "C", 
   council_tax_band = "D", 
@@ -207,7 +248,8 @@ dream_house <- data.frame(
   days_since = as.numeric(ymd(Sys.Date()) - earliest_date),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = dream_house, se.fit = TRUE)
@@ -259,6 +301,9 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £241k [£225k-£258k] (n = 4305) Detached
 # £235k [£223k-£247k] (n = 4447) Detached (reduced k in te and mp to 0.05)
 # £246k [£225k-£267k] (n = 4757) Detached
+# £250k [£229k-£271k] (n = 4836) Detached
+# £255k [£235k-£275k] (n = 5039) Detached
+# £254k [£234k-£274k] (n = 5039) Detached (reworked model to include more covariates)
 
 ## Over time ---------------------------------------------------------------
 
@@ -268,16 +313,16 @@ nu_data <- expand.grid(
   HouseType = unique(df$HouseType),
   epc_band = "C",
   council_tax_band = "E",
-  rooms = median(df$rooms),
   Bedrooms = median(df$Bedrooms),
-  Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
+  Bathrooms = median(df$Bathrooms),
   FloorArea = median(df$FloorArea),
   UR8Name = "Accessible Rural Areas",
   days_since = seq(min(df$days_since), max(df$days_since), length.out = 25),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 nu_data$date <- min(df$date) + nu_data$days_since
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -309,7 +354,8 @@ nu_data <- expand.grid(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data)
@@ -344,7 +390,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -375,7 +422,8 @@ nu_data <- expand.grid(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -414,7 +462,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -446,7 +495,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -477,7 +527,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -510,7 +561,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = unique(df$parking_type)
+  parking_type = unique(df$parking_type),
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -543,7 +595,8 @@ nu_data <- data.frame(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -616,7 +669,8 @@ nu_data <- expand.grid(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -666,7 +720,8 @@ nu_data <- expand.grid(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -717,7 +772,8 @@ nu_data <- expand.grid(
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
-  parking_type = "Garage"
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
 )
 
 nu_data$fit <- predict(m1, newdata = nu_data)
@@ -820,3 +876,10 @@ abdn_map_Price
 
 saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
 
+
+# Gatehouse prediction ----------------------------------------------------
+gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
+preds <- predict(m1, gatehouse, se.fit = TRUE)
+preds$fit
+preds$fit - preds$se.fit * 1.96
+preds$fit + preds$se.fit * 1.96
