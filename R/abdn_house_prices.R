@@ -118,9 +118,9 @@ ggplot(df, aes(x = HouseType, y = Price, fill = HouseType)) +
   geom_boxplot(alpha = 0.6) +
   labs(x = "EPC", y = "Price")
 
-ggplot(df, aes(x = City, y = Price)) +
+ggplot(df, aes(x = reorder(City, -Price, FUN = median), y = Price)) +
   geom_boxplot(alpha = 0.6) +
-  labs(x = "EPC", y = "Price") +
+  labs(x = "Area", y = "Price") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 ggplot(df, aes(x = council_tax_band, y = Price, fill = HouseType)) +
@@ -132,12 +132,13 @@ ggplot(df, aes(x = reorder(SolicitorAccount_Name, -Price, FUN = median), y = Pri
   labs(x = "Solicitor", y = "Price") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
-ggplot(df, aes(x = epc_band, y = Price, fill = HouseType)) +
+ggplot(df, aes(x = epc_band, y = Price)) +
   geom_boxplot(alpha = 0.6) +
   labs(x = "EPC", y = "Price")
 
 # The AI MaCHiNE LeARniNg model -------------------------------------------
-mp <- list(c(3, 0.05, 1), c(3, 0.05, 1))
+#mp <- list(c(3, 0.05, 1), c(3, 0.05, 1))
+mp <- list(c(3, 0.1, 1), c(3, 0.1, 1))
 df$HouseType <- factor(df$HouseType)
 df$epc_band <- factor(df$epc_band)
 df$council_tax_band <- factor(df$council_tax_band)
@@ -146,66 +147,42 @@ df$has_garden <- factor(df$has_garden)
 df$num_floors <- factor(df$num_floors)
 df$parking_type <- factor(df$parking_type)
 df$City <- factor(df$City)
-
-# m1 <- gam(Price ~ 
-#             te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
-#             te(FloorArea, rooms, k = 5, bs = "cr") +
-#             s(days_since, by = HouseType, k = 3, bs = "cr") +
-#             UR8Name : HouseType +
-#             UR8Name + 
-#             HouseType + 
-#             Bathrooms + 
-#             epc_band + 
-#             parking_type +
-#             council_tax_band,
-#           data = df, method = "REML")
+df$SolicitorAccount_Name <- factor(df$SolicitorAccount_Name)
 
 m1 <- bam(Price ~
             # Temporal
-            s(days_since, by = HouseType, k = 3, bs = "cr") +
+            s(days_since, by = HouseType, k = 5, bs = "cr") +
 
             # Location
-            te(Longitude, Latitude, k = 23, m = mp, bs = "gp") +
+            te(Longitude, Latitude, 
+               k = 20, m = mp, bs = "gp"
+               # ,
+               # k = 25, bs = "tp"
+               ) +
             UR8Name +
 
             # House features
-            #te(FloorArea, rooms, k = 5, bs = "cr") +
             HouseType +
             s(FloorArea, k = 5, bs = "cr") +
             Bedrooms +
             PublicRooms +
             Bathrooms +
+            num_floors +
             parking_type +
             has_garden +
             epc_band +
-            council_tax_band +
+            council_tax_band, #+
 
             # Admin side
-            SolicitorAccount_Name,
+            #SolicitorAccount_Name,
           data = df,
           method = "REML")
-
-# m1 <- gam(Price ~ 
-#             te(Longitude, Latitude, k = 20, m = mp, bs = "gp") +
-#             s(days_since, by = HouseType, k = 5, bs = "cr") +
-#             FloorArea +
-#             rooms +
-#             UR8Name +
-#             HouseType + 
-#             Bathrooms + 
-#             epc_band + 
-#             # has_garden +
-#             # num_floors +
-#             parking_type +
-#             council_tax_band,
-#           data = df, method = "REML")
 
 # Save model
 saveRDS(m1, file = "C:/abdn_app/data/model_m1.rds")
 
 summary(m1)
 gam.check(m1)
-#plot(m1, all.terms = TRUE, ask = FALSE)
 
 # Predictions -------------------------------------------------------------
 prds <- predict(m1, se.fit = TRUE)
@@ -304,6 +281,16 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £250k [£229k-£271k] (n = 4836) Detached
 # £255k [£235k-£275k] (n = 5039) Detached
 # £254k [£234k-£274k] (n = 5039) Detached (reworked model to include more covariates)
+# £254k [£234k-£274k] (n = 5104) Detached
+# £254k [£234k-£274k] (n = 5144) Detached
+# £256k [£236k-£276k] (n = 5193) Detached
+# £255k [£255k-£255k] (n = 5205) Detached (rework model - extra obs blew model out)
+# £278k [£258k-£297k] (n = 5282) Detached
+# £250k [£235k-£265k] (n = 5319) Detached
+# £234k [£212k-£255k] (n = 5319) Detached (back to TPS as GP very unstable)
+# £251k [£236k-£265k] (n = 5386) Detached (back to GP but K reduced to 10)
+# £252k [£238k-£266k] (n = 5426) Detached
+# £274k [£255k-£293k] (n = 5441) Detached (GP K up to 20)
 
 ## Over time ---------------------------------------------------------------
 
@@ -623,7 +610,7 @@ df$upp2 <- 0 + 2 * sigma(m1) + df$expect
 p9 <- ggplot(df) +
   geom_ribbon(aes(x = expect, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
   geom_ribbon(aes(x = expect, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
-  geom_point(aes(x = expect, y = Price), size = 1) +
+  geom_point(aes(x = expect, y = Price), size = 1, alpha = 0.2) +
   geom_abline(intercept = 0, slope = 1, colour = "white") +
   scale_x_continuous(labels = scales::comma) +
   scale_y_continuous(labels = scales::comma) +
@@ -879,6 +866,30 @@ saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html")
 
 # Gatehouse prediction ----------------------------------------------------
 gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
+preds <- predict(m1, gatehouse, se.fit = TRUE)
+preds$fit
+preds$fit - preds$se.fit * 1.96
+preds$fit + preds$se.fit * 1.96
+
+
+gatehouse$epc_band <- "C"
+preds <- predict(m1, gatehouse, se.fit = TRUE)
+preds$fit
+preds$fit - preds$se.fit * 1.96
+preds$fit + preds$se.fit * 1.96
+
+gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
+gatehouse$FloorArea <- 110
+preds <- predict(m1, gatehouse, se.fit = TRUE)
+preds$fit
+preds$fit - preds$se.fit * 1.96
+preds$fit + preds$se.fit * 1.96
+
+gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
+gatehouse$epc_band <- "B"
+gatehouse$Bedrooms <- 3
+gatehouse$Bathrooms <- 2
+gatehouse$FloorArea <- 110
 preds <- predict(m1, gatehouse, se.fit = TRUE)
 preds$fit
 preds$fit - preds$se.fit * 1.96

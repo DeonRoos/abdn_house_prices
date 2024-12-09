@@ -163,7 +163,7 @@ ggplot(df) +
 write.table(df, "C:/006-BI3010/Workshops/Workshop 2 - Data vis/Data/abdn_flats.txt", row.names = FALSE)
 
 # Linear model ------------------------------------------------------------
-lm1 <- lm(Price ~ FloorArea + Rooms + HouseType + EPC + Tax + Furnished + UrbanRural,
+lm1 <- lm(Price ~ FloorArea + Rooms + HouseType + EPC + Tax + Furnished + DayAdded,
           data = df)
 
 saveRDS(lm1, file = "C:/flat_rent/data/lm_m1.rds")
@@ -384,13 +384,13 @@ mp <- list(
 )
 m1 <- gam(Price ~ 
             te(Longitude, Latitude, k = 5, bs = "gp", m = mp) +
+            s(DayAdded, bs = "cr", k = 10) +
             FloorArea + 
             Rooms + 
             Tax + 
             EPC +
             HouseType +
-            Furnished + 
-            UrbanRural,
+            Furnished,
           data = df,
           method = "REML")
 
@@ -752,10 +752,10 @@ abdn_map <- leaflet(df) %>%
       "<br><b>Rent fairness:</b> ", df$over,
       "<br><b>Rent:</b> £", scales::comma(df$Price), " (£", abs(round(df$diffn, digits = 0)),
       ifelse(round(df$diffn, digits = 0) < 0, " under expected)", ifelse(round(df$diffn, digits = 0) > 0, " over expected)", ")")),
-      "<br><b>Expected Rent (LM):</b> £", scales::comma(df$expect),
-      "<br><b>Expected Rent Range (LM):</b> £", round(df$low, digits = 0), " - ", round(df$upp, digits = 0), 
+      "<br><b>Expected Rent (LM):</b> £", scales::comma(round(df$expect, digits = 0)),
+      "<br><b>Expected Rent Range (LM):</b> £", round(df$low, digits = 0), " - £", round(df$upp, digits = 0), 
       "<br><i>Expected Rent (GAM):</i> £", scales::comma(df$expect_gam),
-      "<br><i>Expected Rent Range (GAM):</i> £", round(df$low_gam, digits = 0), " - ", round(df$upp_gam, digits = 0), 
+      "<br><i>Expected Rent Range (GAM):</i> £", round(df$low_gam, digits = 0), " - £", round(df$upp_gam, digits = 0), 
       "<hr>",
       "<span style='font-size: 16px;'><b>Flat details</b></span>",
       "<br><b>Date added:</b> ", df$DateAdded,
