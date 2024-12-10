@@ -291,6 +291,7 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £251k [£236k-£265k] (n = 5386) Detached (back to GP but K reduced to 10)
 # £252k [£238k-£266k] (n = 5426) Detached
 # £274k [£255k-£293k] (n = 5441) Detached (GP K up to 20)
+# £272k [£253k-£291k] (n = 5450) Detached
 
 ## Over time ---------------------------------------------------------------
 
