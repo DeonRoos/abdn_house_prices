@@ -191,6 +191,7 @@ nu_data <- data.frame(
   Tax = "C",
   HouseType = "Flat",
   Rooms = median(df$Rooms, na.rm = TRUE),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   FloorArea = seq(min(df$FloorArea, na.rm = TRUE), max(df$FloorArea, na.rm = TRUE), length.out = 25),
   UrbanRural = "Large Urban Areas",
   Furnished = "Fully furnished"
@@ -218,6 +219,7 @@ nu_data <- data.frame(
   Tax = "C",
   HouseType = "Flat",
   Rooms = seq(min(df$Rooms, na.rm = TRUE), max(df$Rooms, na.rm = TRUE), length.out = 25),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   FloorArea = median(df$FloorArea, na.rm = TRUE),
   UrbanRural = "Large Urban Areas",
   Furnished = "Fully furnished"
@@ -245,6 +247,7 @@ nu_data <- data.frame(
   Tax = "C",
   HouseType = "Flat",
   Rooms = median(df$Rooms, na.rm = TRUE),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   FloorArea = median(df$FloorArea, na.rm = TRUE),
   UrbanRural = "Large Urban Areas",
   Furnished = "Fully furnished"
@@ -271,6 +274,7 @@ nu_data <- data.frame(
   Tax = unique(df$Tax),
   HouseType = "Flat",
   Rooms = median(df$Rooms, na.rm = TRUE),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   FloorArea = median(df$FloorArea, na.rm = TRUE),
   UrbanRural = "Large Urban Areas",
   Furnished = "Fully furnished"
@@ -297,6 +301,7 @@ nu_data <- data.frame(
   Tax = "C",
   HouseType = "Flat",
   Rooms = median(df$Rooms, na.rm = TRUE),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   FloorArea = median(df$FloorArea, na.rm = TRUE),
   UrbanRural = "Large Urban Areas",
   Furnished = unique(df$Furnished)
@@ -324,7 +329,8 @@ nu_data <- data.frame(
   HouseType = "Flat",
   Rooms = median(df$Rooms, na.rm = TRUE),
   FloorArea = median(df$FloorArea, na.rm = TRUE),
-  UrbanRural = unique(df$UrbanRural),
+  DayAdded = seq(min(df$DayAdded, na.rm = TRUE), max(df$DayAdded, na.rm = TRUE), length.out = 25),
+  #UrbanRural = unique(df$UrbanRural),
   Furnished = "Fully furnished"
 )
 
@@ -334,11 +340,11 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p6 <- ggplot() +
-  geom_errorbar(data = nu_data, aes(x = UrbanRural, ymin = low, ymax = upp), colour = "white", width = 0.1) +
-  geom_point(data = nu_data, aes(x = UrbanRural, y = fit)) +
+  geom_ribbon(data = nu_data, aes(x = DayAdded, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_line(data = nu_data, aes(x = DayAdded, y = fit)) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
-       x = "Urban Rural Classification") +
+       x = "Days since start") +
   sbs_theme()
 p6
 
@@ -425,6 +431,7 @@ abdnshire <- get_map(location = c(lon_bar, lat_bar),
 nu_data <- expand.grid(
   Latitude = seq(min(df$Latitude), max(df$Latitude), length.out = 200),
   Longitude = seq(min(df$Longitude), max(df$Longitude), length.out = 200),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
@@ -472,6 +479,7 @@ abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565),
 nu_data <- expand.grid(
   Latitude = seq(min(min_lat), max(max_lat), length.out = 200),
   Longitude = seq(min(min_lon), max(max_lon), length.out = 200),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
@@ -512,6 +520,7 @@ ggsave("C:/flat_rent/www/rent_maps.png", plot = gam_space)
 nu_data <- data.frame(
   Latitude = median(df$Latitude),
   Longitude = median(df$Longitude),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
@@ -541,6 +550,7 @@ p3
 nu_data <- data.frame(
   Latitude = median(df$Latitude),
   Longitude = median(df$Longitude),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
@@ -570,6 +580,7 @@ p4
 nu_data <- data.frame(
   Latitude = median(df$Latitude),
   Longitude = median(df$Longitude),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = unique(df$EPC),
   Tax = "C",
   HouseType = "Flat",
@@ -598,6 +609,7 @@ p5
 nu_data <- data.frame(
   Latitude = median(df$Latitude),
   Longitude = median(df$Longitude),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = unique(df$Tax),
   HouseType = "Flat",
@@ -626,6 +638,7 @@ p6
 nu_data <- data.frame(
   Latitude = median(df$Latitude),
   Longitude = median(df$Longitude),
+  DayAdded = median(df$DayAdded, na.rm = TRUE),
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
@@ -657,10 +670,11 @@ nu_data <- data.frame(
   EPC = "C",
   Tax = "C",
   HouseType = "Flat",
-  Furnished = "Fully furnished",
-  UrbanRural = unique(df$UrbanRural),
-  Rooms = median(df$Rooms),
-  FloorArea = median(df$FloorArea)
+  Rooms = median(df$Rooms, na.rm = TRUE),
+  FloorArea = median(df$FloorArea, na.rm = TRUE),
+  DayAdded = seq(min(df$DayAdded, na.rm = TRUE), max(df$DayAdded, na.rm = TRUE), length.out = 25),
+  #UrbanRural = unique(df$UrbanRural),
+  Furnished = "Fully furnished"
 )
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
@@ -669,11 +683,12 @@ nu_data$low <- prds$fit - prds$se.fit * 1.96
 nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p8 <- ggplot() +
-  geom_errorbar(data = nu_data, aes(x = UrbanRural, ymin = low, ymax = upp), colour = "white", width = 0.1) +
-  geom_point(data = nu_data, aes(x = UrbanRural, y = fit)) +
+  geom_ribbon(data = nu_data, aes(x = DayAdded, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
+  geom_point(data = df, aes(x = DayAdded, y = Price), size = 1) +
+  geom_line(data = nu_data, aes(x = DayAdded, y = fit)) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
-       x = "Urban Rural Classification") +
+       x = "Days since start") +
   sbs_theme()
 p8
 

@@ -87,7 +87,7 @@ df |>
   summarise(count = n(), .groups = "drop") |> 
   filter(date != min(date)) |> 
   ggplot(aes(x = date, y = count, color = HouseType)) +
-  geom_point() +
+  geom_point(size = 2) +
   geom_line(size = 0.5) +
   labs(
     x = "Date",
@@ -102,7 +102,7 @@ df |>
   group_by(fortnight, HouseType) |> 
   summarise(count = n(), .groups = 'drop') |> 
   ggplot(aes(x = fortnight, y = count, color = HouseType)) +
-  geom_point() +
+  geom_point(size = 2) +
   geom_line(size = 0.5) +
   labs(
     x = "Fortnight",
@@ -110,7 +110,20 @@ df |>
     color = "House HouseType"
   )
 
-ggplot(df, aes(x = Price, fill = UR8Name)) +
+df |> 
+  mutate(month = month(date)) |> 
+  group_by(month, HouseType) |> 
+  summarise(count = n(), .groups = 'drop') |> 
+  ggplot(aes(x = month, y = count, color = HouseType)) +
+  geom_point(size = 2) +
+  geom_line(size = 0.5) +
+  labs(
+    x = "Month",
+    y = "Number of Listings",
+    color = "House HouseType"
+  )
+
+ggplot(df, aes(x = Price, fill = UR2Name)) +
   geom_density(alpha = 0.6) +
   labs(x = "Price", y = "Density")
 
@@ -156,17 +169,15 @@ m1 <- bam(Price ~
             # Location
             te(Longitude, Latitude, 
                k = 20, m = mp, bs = "gp"
-               # ,
-               # k = 25, bs = "tp"
                ) +
             UR8Name +
 
             # House features
             HouseType +
-            s(FloorArea, k = 5, bs = "cr") +
-            Bedrooms +
-            PublicRooms +
-            Bathrooms +
+            s(FloorArea, k = 3, bs = "cr") +
+            s(Bedrooms, k = 3, bs = "cr") +
+            s(PublicRooms, k = 3, bs = "cr") +
+            s(Bathrooms, k = 3, bs = "cr") +
             num_floors +
             parking_type +
             has_garden +
@@ -292,6 +303,16 @@ paste0("# £", round(prds$fit, digits = -3)/1000, "k [£",
 # £252k [£238k-£266k] (n = 5426) Detached
 # £274k [£255k-£293k] (n = 5441) Detached (GP K up to 20)
 # £272k [£253k-£291k] (n = 5450) Detached
+# £274k [£254k-£293k] (n = 5481) Detached
+# £275k [£256k-£294k] (n = 5500) Detached
+# £274k [£255k-£293k] (n = 5508) Detached
+# £275k [£256k-£294k] (n = 5530) Detached
+# £276k [£256k-£295k] (n = 5552) Detached
+# £270k [£253k-£288k] (n = 5572) Detached (GP k dropped to 15)
+# £278k [£259k-£298k] (n = 5592) Detached (GP K up to 20)
+# £254k [£236k-£272k] (n = 5742) Detached (GP k 15)
+# £240k [£222k-£259k] (n = 5852) Detached
+# £257k [£240k-£273k] (n = 5937) Detached
 
 ## Over time ---------------------------------------------------------------
 
@@ -312,6 +333,10 @@ nu_data <- expand.grid(
   parking_type = "Garage",
   SolicitorAccount_Name = "Aberdein Considine"
 )
+nu_data$HouseType <- factor(nu_data$HouseType, levels = c("Detached",
+                                                          "Semi-Detached",
+                                                          "Terraced",
+                                                          "Flat"))
 nu_data$date <- min(df$date) + nu_data$days_since
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
@@ -325,7 +350,7 @@ p1 <- ggplot() +
        x = "Date")
 p1
 
-## M:Room Interaction ----------------------------------------------------------------
+## Floor area ----------------------------------------------------------------
 
 nu_data <- expand.grid(
   Latitude = median(df$Latitude), 
@@ -334,7 +359,7 @@ nu_data <- expand.grid(
   UR8Name = "Accessible Rural Areas",
   epc_band = "C",
   council_tax_band = "E",
-  rooms = seq(min(df$rooms), max(df$rooms), length.out = 25),
+  rooms = median(df$rooms),#seq(min(df$rooms), max(df$rooms), length.out = 25),
   Bedrooms = median(df$Bedrooms),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
@@ -346,20 +371,15 @@ nu_data <- expand.grid(
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
-prds <- predict(m1, newdata = nu_data)
-nu_data$fit <- prds
-
-nu_data$fit[exclude.too.far(
-  nu_data$rooms, nu_data$FloorArea,
-  df$rooms, df$FloorArea,
-  dist = 0.1)] <- NA
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
 
 p2 <- ggplot() +
-  geom_raster(data = nu_data, aes(x = rooms, y = FloorArea, fill = fit)) +
-  scale_fill_viridis_c(option = "magma", na.value = "transparent", labels = scales::comma) +
-  labs(y = "Square meters",
-       x = "Rooms",
-       fill = "Expected\nPrice")
+  geom_ribbon(data = nu_data, aes(x = FloorArea, y = fit, ymin = low, ymax = upp), alpha = 1) +
+  geom_line(data = nu_data, aes(x = FloorArea, y = fit)) +  
+  labs(x = "Square meters",
+       y = "Expected\nPrice")
 p2
 
 ## House HouseType --------------------------------------------------------------
@@ -394,19 +414,19 @@ p3 <- ggplot() +
        x = "House HouseType")
 p3
 
-## House HouseType:Urban--------------------------------------------------------------
+## Rooms ----------------------------------------------------------------
+
 nu_data <- expand.grid(
   Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
-  HouseType = c("Semi-Detached", "Detached", "Terraced", "Flat"),
-  UR8Name = unique(df$UR8Name),
-  rooms = median(df$rooms),
-  Bedrooms = median(df$Bedrooms),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  Bedrooms = seq(min(df$Bedrooms), max(df$Bedrooms), length.out = 25),
   Bathrooms = median(df$Bathrooms),
   PublicRooms = median(df$PublicRooms),
   FloorArea = median(df$FloorArea),
-  epc_band = "C",
-  council_tax_band = "E",
   days_since = median(df$days_since),
   has_garden = "Yes",
   num_floors = 1,
@@ -419,19 +439,42 @@ nu_data <- nu_data |>
   mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
 
 p4 <- ggplot() +
-  geom_errorbar(data = nu_data, 
-                aes(x = HouseType, y = fit, ymin = low, ymax = upp, colour = UR8Name), 
-                width = 0.1, position = position_dodge(width = 0.5)) +
-  geom_point(data = nu_data, 
-             aes(x = HouseType, y = fit, colour = UR8Name), 
-             size = 3.5, position = position_dodge(width = 0.5)) +
-  scale_y_continuous(labels = scales::comma) +
-  scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
-  scale_color_discrete(labels = function(x) str_wrap(x, width = 15)) +
-  labs(y = "Asking Price",
-       x = "House HouseType",
-       colour = "Urban|Rural")
+  geom_ribbon(data = nu_data, aes(x = Bedrooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
+  geom_line(data = nu_data, aes(x = Bedrooms, y = fit)) +  
+  labs(x = "Bedrooms",
+       y = "Expected\nPrice")
 p4
+
+## PublicRooms ----------------------------------------------------------------
+
+nu_data <- expand.grid(
+  Latitude = median(df$Latitude), 
+  Longitude = median(df$Longitude),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  PublicRooms = seq(min(df$PublicRooms), max(df$PublicRooms), length.out = 25),
+  Bathrooms = median(df$Bathrooms),
+  Bedrooms = median(df$Bedrooms),
+  FloorArea = median(df$FloorArea),
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+
+p4.5 <- ggplot() +
+  geom_ribbon(data = nu_data, aes(x = PublicRooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
+  geom_line(data = nu_data, aes(x = PublicRooms, y = fit)) +  
+  labs(x = "Public Rooms",
+       y = "Expected\nPrice")
+p4.5
 
 ## Bathrooms ----------------------------------------------------------------
 
@@ -464,7 +507,6 @@ p5 <- ggplot() +
   labs(y = "Asking Price",
        x = "Bathrooms")
 p5
-
 
 ## epc_band ------------------------------------------------------------
 
@@ -528,7 +570,7 @@ p7 <- ggplot() +
   geom_point(data = nu_data, aes(x = council_tax_band, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
-       x = "council_tax_band band")
+       x = "Tax band")
 p7
 
 
@@ -592,8 +634,8 @@ nu_data <- nu_data |>
   mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
 
 p8 <- ggplot() +
-  geom_errorbar(data = nu_data, aes(x = UR8Name, y = fit, ymin = low, ymax = upp, colour = UR8Name), width = 0.1, linewidth = 1) +
-  geom_point(data = nu_data, aes(x = UR8Name, y = fit, colour = UR8Name), size = 2.5) +
+  geom_errorbar(data = nu_data, aes(x = UR8Name, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1) +
+  geom_point(data = nu_data, aes(x = UR8Name, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
   scale_color_discrete(labels = function(x) str_wrap(x, width = 15)) +
@@ -620,14 +662,16 @@ p9 <- ggplot(df) +
   sbs_theme()
 
 design <- "
+#AA#
 CCDD
 EEFF
 GGHH
 IIJJ
-#KK#
+KKKK
+KKKK
 "
 
-p_figs <- p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9 + plot_layout(design = design)
+p_figs <- p9 + p2 + p3 + p4 + p4.5 + p5 + p6 + p7 + p8 + p1 + plot_layout(design = design)
 p_figs
 
 ## Aberdeenshire far -------------------------------------------------------
@@ -788,7 +832,16 @@ p_maps <- map2 / map3
 ggsave("C:/abdn_app/www/plot_maps.png", plot = p_maps)
 
 # Leaflet map pricing --------------------------------------------------------
+# Load necessary library
+library(leaflet)
 
+# Create subsets for each HouseType
+df_detached <- subset(df, HouseType == "Detached")
+df_semi <- subset(df, HouseType == "Semi-Detached")
+df_terraced <- subset(df, HouseType == "Terraced")
+df_flat <- subset(df, HouseType == "Flat")
+
+# Define the pricing icon list
 pricing <- awesomeIconList(
   "UnderPriced" = makeAwesomeIcon(
     icon = "home",
@@ -807,15 +860,16 @@ pricing <- awesomeIconList(
   )
 )
 
-abdn_map_Price <- leaflet(df) %>%
+# Create the leaflet map with layers for each HouseType
+abdn_map_Price <- leaflet() %>%
   addProviderTiles(provider = "OpenStreetMap") %>%
+  
+  # Add markers for Detached
   addAwesomeMarkers(
-    data = df,
-    #lng = ~Longitude, Latitude = ~Latitude,
-    icon = ~ pricing[over],
-    label = ~paste0(
-      AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"
-    ),
+    data = df_detached,
+    icon = ~pricing[over],
+    group = "Detached",
+    label = ~paste0(AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"),
     popup = ~paste(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<span style='font-size: 20px;'><b>", AddressLine1, "</b></span>",
@@ -830,7 +884,7 @@ abdn_map_Price <- leaflet(df) %>%
                     " under expected)", 
                     ifelse(round(diffn / 1000, digits = 0) > 0, 
                            " over expected)", ")"))),      
-      "<br><b>Expected Price:</b>", paste0("£", scales::comma(expect)),
+      "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
@@ -838,7 +892,7 @@ abdn_map_Price <- leaflet(df) %>%
       "<hr>",      
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
-      "<br><b>House HouseType:</b> ", HouseType,
+      "<br><b>House Type:</b> ", HouseType,
       "<table style='width: 100%; border-collapse: collapse;'>",
       "<tr><td style='width: 50%; vertical-align: top;'>",
       Bedrooms, " bedrooms", "<br>",
@@ -848,22 +902,162 @@ abdn_map_Price <- leaflet(df) %>%
       FloorArea, " m<sup>2</sup>", "<br>",
       "EPC: ", toupper(epc_band), "<br>",
       "Council Tax: ", toupper(council_tax_band), "<br>",
-      # "<tr><td style='width: 50%; vertical-align: top;'>",
-      # "Garden": has_garden, "<br>",
-      # "Parking:", parking, "<br>",
-      # "Number of floors", num_floors, "<br>",
       "</td></tr>",
       "</table>",
       "<hr>",
       "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
       "</div>"
     )
+  ) %>%
+  
+  # Repeat for Semi-Detached
+  addAwesomeMarkers(
+    data = df_semi,
+    icon = ~pricing[over],
+    group = "Semi-Detached",
+    label = ~paste0(AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"),
+    popup = ~paste(
+      "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
+      "<span style='font-size: 20px;'><b>", AddressLine1, "</b></span>",
+      "<br><span style='font-size: 10px;'><b>", UR8Name, "</b></span>",
+      "<hr>",
+      "<span style='font-size: 16px;'><b>Price</b></span>",
+      "<br><b>Fairness:</b> ", over,
+      "<br><b>Asking Price:</b>", 
+      paste0(" £", scales::comma(Price), 
+             " (", abs(round(diffn / 1000, digits = 0)), "k",
+             ifelse(round(diffn / 1000, digits = 0) < 0, 
+                    " under expected)", 
+                    ifelse(round(diffn / 1000, digits = 0) > 0, 
+                           " over expected)", ")"))),      
+      "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
+      "<br><b>Expected Price Range:</b>", 
+      paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b>Price per m<sup>2</sup>:</b> ", 
+      paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
+      "<hr>",      
+      "<span style='font-size: 16px;'><b>House details</b></span>",
+      "<br><b>Date added:</b> ", date,
+      "<br><b>House Type:</b> ", HouseType,
+      "<table style='width: 100%; border-collapse: collapse;'>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      Bedrooms, " bedrooms", "<br>",
+      PublicRooms, " living rooms", "<br>",
+      Bathrooms, " bathrooms", "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      FloorArea, " m<sup>2</sup>", "<br>",
+      "EPC: ", toupper(epc_band), "<br>",
+      "Council Tax: ", toupper(council_tax_band), "<br>",
+      "</td></tr>",
+      "</table>",
+      "<hr>",
+      "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
+      "</div>"
+    )
+  ) %>%
+  
+  # Add markers for Terraced
+  addAwesomeMarkers(
+    data = df_terraced,
+    icon = ~pricing[over],
+    group = "Terraced",
+    label = ~paste0(AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"),
+    popup = ~paste(
+      "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
+      "<span style='font-size: 20px;'><b>", AddressLine1, "</b></span>",
+      "<br><span style='font-size: 10px;'><b>", UR8Name, "</b></span>",
+      "<hr>",
+      "<span style='font-size: 16px;'><b>Price</b></span>",
+      "<br><b>Fairness:</b> ", over,
+      "<br><b>Asking Price:</b>", 
+      paste0(" £", scales::comma(Price), 
+             " (", abs(round(diffn / 1000, digits = 0)), "k",
+             ifelse(round(diffn / 1000, digits = 0) < 0, 
+                    " under expected)", 
+                    ifelse(round(diffn / 1000, digits = 0) > 0, 
+                           " over expected)", ")"))),      
+      "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
+      "<br><b>Expected Price Range:</b>", 
+      paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b>Price per m<sup>2</sup>:</b> ", 
+      paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
+      "<hr>",      
+      "<span style='font-size: 16px;'><b>House details</b></span>",
+      "<br><b>Date added:</b> ", date,
+      "<br><b>House Type:</b> ", HouseType,
+      "<table style='width: 100%; border-collapse: collapse;'>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      Bedrooms, " bedrooms", "<br>",
+      PublicRooms, " living rooms", "<br>",
+      Bathrooms, " bathrooms", "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      FloorArea, " m<sup>2</sup>", "<br>",
+      "EPC: ", toupper(epc_band), "<br>",
+      "Council Tax: ", toupper(council_tax_band), "<br>",
+      "</td></tr>",
+      "</table>",
+      "<hr>",
+      "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
+      "</div>"
+    )
+  ) %>%
+  
+  # Add markers for Flat
+  addAwesomeMarkers(
+    data = df_flat,
+    icon = ~pricing[over],
+    group = "Flat",
+    label = ~paste0(AddressLine1, " (£", abs(round(Price / 1000, digits = 0)), "k)"),
+    popup = ~paste(
+      "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
+      "<span style='font-size: 20px;'><b>", AddressLine1, "</b></span>",
+      "<br><span style='font-size: 10px;'><b>", UR8Name, "</b></span>",
+      "<hr>",
+      "<span style='font-size: 16px;'><b>Price</b></span>",
+      "<br><b>Fairness:</b> ", over,
+      "<br><b>Asking Price:</b>", 
+      paste0(" £", scales::comma(Price), 
+             " (", abs(round(diffn / 1000, digits = 0)), "k",
+             ifelse(round(diffn / 1000, digits = 0) < 0, 
+                    " under expected)", 
+                    ifelse(round(diffn / 1000, digits = 0) > 0, 
+                           " over expected)", ")"))),      
+      "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
+      "<br><b>Expected Price Range:</b>", 
+      paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b>Price per m<sup>2</sup>:</b> ", 
+      paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
+      "<hr>",      
+      "<span style='font-size: 16px;'><b>House details</b></span>",
+      "<br><b>Date added:</b> ", date,
+      "<br><b>House Type:</b> ", HouseType,
+      "<table style='width: 100%; border-collapse: collapse;'>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      Bedrooms, " bedrooms", "<br>",
+      PublicRooms, " living rooms", "<br>",
+      Bathrooms, " bathrooms", "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      FloorArea, " m<sup>2</sup>", "<br>",
+      "EPC: ", toupper(epc_band), "<br>",
+      "Council Tax: ", toupper(council_tax_band), "<br>",
+      "</td></tr>",
+      "</table>",
+      "<hr>",
+      "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
+      "</div>"
+    )
+  ) %>%
+
+  # Add layer control
+  addLayersControl(
+    overlayGroups = c("Detached", "Semi-Detached", "Terraced", "Flat"),
+    options = layersControlOptions(collapsed = FALSE)
   )
 
+# Display the map
 abdn_map_Price
 
 saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
-
 
 # Gatehouse prediction ----------------------------------------------------
 gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
@@ -895,3 +1089,49 @@ preds <- predict(m1, gatehouse, se.fit = TRUE)
 preds$fit
 preds$fit - preds$se.fit * 1.96
 preds$fit + preds$se.fit * 1.96
+
+
+## Aberdeen ----------------------------------------------------------------
+
+min_Longitude <- -2.28
+max_Longitude <- -2.05
+min_Latitude <- 57.22
+max_Latitude <- 57.37
+
+abdn <- get_map(location = c(gatehouse$Longitude, gatehouse$Latitude), 
+                zoom = 12, 
+                mapHouseType = "hybrid", 
+                source = "google", 
+                messaging = FALSE)
+gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
+nu_data <- expand.grid(
+  Latitude = seq(min_Latitude, max_Latitude, length.out = 200),
+  Longitude = seq(min_Longitude, max_Longitude, length.out = 200),
+  HouseType = gatehouse$HouseType,
+  UR8Name = gatehouse$UR8Name,
+  epc_band = gatehouse$epc_band,
+  council_tax_band = gatehouse$council_tax_band,
+  rooms = gatehouse$rooms,
+  Bedrooms = gatehouse$Bedrooms,
+  Bathrooms = gatehouse$Bathrooms,
+  PublicRooms = gatehouse$PublicRooms,
+  FloorArea = gatehouse$FloorArea,
+  days_since = gatehouse$days_since,
+  has_garden = gatehouse$has_garden,
+  num_floors = gatehouse$num_floors,
+  parking_type = gatehouse$parking_type,
+  SolicitorAccount_Name = gatehouse$SolicitorAccount_Name
+)
+
+nu_data$fit <- predict(m1, newdata = nu_data)
+
+map4 <- ggmap(abdn) +
+  geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), na.rm = TRUE, alpha = 0.6) +
+  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
+  geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
+  scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
+  labs(x = "Longitude",
+       y = "Latitude",
+       fill = "Expected\nPrice (£)") +
+  sbsvoid_theme()
+map4
