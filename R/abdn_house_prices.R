@@ -346,7 +346,7 @@ p1 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = date, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = date, y = fit)) +
   facet_wrap(~HouseType) +
-  labs(y = "Asking Price",
+  labs(y = "Expected\nPrice",
        x = "Date")
 p1
 
@@ -378,11 +378,11 @@ nu_data <- nu_data |>
 p2 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = FloorArea, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = FloorArea, y = fit)) +  
-  labs(x = "Square meters",
+  labs(x = "Square Meters",
        y = "Expected\nPrice")
 p2
 
-## House HouseType --------------------------------------------------------------
+## House Type --------------------------------------------------------------
 nu_data <- data.frame(
   Latitude = median(df$Latitude), 
   Longitude = median(df$Longitude),
@@ -410,8 +410,8 @@ p3 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = HouseType, y = fit, ymin = low, ymax = upp), width = 0.1, colour = "white") +
   geom_point(data = nu_data, aes(x = HouseType, y = fit), size = 3.5) +
   scale_y_continuous(labels = scales::comma) +
-  labs(y = "Asking Price",
-       x = "House HouseType")
+  labs(y = "Expected\nPrice",
+       x = "House Type")
 p3
 
 ## Rooms ----------------------------------------------------------------
@@ -504,7 +504,7 @@ nu_data <- nu_data |>
 p5 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = Bathrooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
   geom_line(data = nu_data, aes(x = Bathrooms, y = fit)) +
-  labs(y = "Asking Price",
+  labs(y = "Expected\nPrice",
        x = "Bathrooms")
 p5
 
@@ -536,8 +536,8 @@ nu_data <- nu_data |>
 p6 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = epc_band, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
   geom_point(data = nu_data, aes(x = epc_band, y = fit), size = 2.5) +
-  labs(y = "Asking Price",
-       x = "epc_band")
+  labs(y = "Expected\nPrice",
+       x = "EPC Band")
 p6
 
 ## council_tax_band ------------------------------------------------------------
@@ -569,8 +569,8 @@ p7 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = council_tax_band, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
   geom_point(data = nu_data, aes(x = council_tax_band, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
-  labs(y = "Asking Price",
-       x = "Tax band")
+  labs(y = "Expected\nPrice",
+       x = "Tax Band")
 p7
 
 
@@ -604,9 +604,77 @@ p9 <- ggplot() +
   geom_point(data = nu_data, aes(x = parking_type, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
-  labs(y = "Asking Price",
-       x = "parking_type")
+  labs(y = "Expected\nPrice",
+       x = "Parking Type")
 p9
+
+## Garden -------------------------------------------------------------
+
+nu_data <- data.frame(
+  Latitude = median(df$Latitude), 
+  Longitude = median(df$Longitude),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  rooms = median(df$rooms),
+  Bedrooms = median(df$Bedrooms),
+  Bathrooms = median(df$Bathrooms),
+  PublicRooms = median(df$PublicRooms),
+  FloorArea = median(df$FloorArea),
+  days_since = median(df$days_since),
+  has_garden = unique(df$has_garden),
+  num_floors = 1,
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+
+p9.1 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = has_garden, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
+  geom_point(data = nu_data, aes(x = has_garden, y = fit), size = 2.5) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
+  labs(y = "Expected\nPrice",
+       x = "Garden")
+p9.1
+
+## Floors -------------------------------------------------------------
+
+nu_data <- data.frame(
+  Latitude = median(df$Latitude), 
+  Longitude = median(df$Longitude),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  rooms = median(df$rooms),
+  Bedrooms = median(df$Bedrooms),
+  Bathrooms = median(df$Bathrooms),
+  PublicRooms = median(df$PublicRooms),
+  FloorArea = median(df$FloorArea),
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = unique(df$num_floors),
+  parking_type = "Garage",
+  SolicitorAccount_Name = "Aberdein Considine"
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+
+p9.2 <- ggplot() +
+  geom_errorbar(data = nu_data, aes(x = num_floors, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
+  geom_point(data = nu_data, aes(x = num_floors, y = fit), size = 2.5) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
+  labs(y = "Expected\nPrice",
+       x = "Number of\nFloors")
+p9.2
 
 ## Urban|Rural -------------------------------------------------------------
 
@@ -634,13 +702,13 @@ nu_data <- nu_data |>
   mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
 
 p8 <- ggplot() +
-  geom_errorbar(data = nu_data, aes(x = UR8Name, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1) +
+  geom_errorbar(data = nu_data, aes(x = UR8Name, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
   geom_point(data = nu_data, aes(x = UR8Name, y = fit), size = 2.5) +
   scale_y_continuous(labels = scales::comma) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) +
   scale_color_discrete(labels = function(x) str_wrap(x, width = 15)) +
-  labs(y = "Asking Price",
-       x = "Urban | Rural")
+  labs(y = "Expected\nPrice",
+       x = "Urban | Rural\nDesignation")
 p8
 
 ## Predicted versus response -----------------------------------------------
@@ -650,7 +718,7 @@ df$upp1 <- 0 + sigma(m1) + df$expect
 df$low2 <- 0 - 2 * sigma(m1) + df$expect
 df$upp2 <- 0 + 2 * sigma(m1) + df$expect
 
-p9 <- ggplot(df) +
+p10 <- ggplot(df) +
   geom_ribbon(aes(x = expect, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
   geom_ribbon(aes(x = expect, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
   geom_point(aes(x = expect, y = Price), size = 1, alpha = 0.2) +
@@ -658,20 +726,22 @@ p9 <- ggplot(df) +
   scale_x_continuous(labels = scales::comma) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Listed Price (£)",
-       x = "Predicted Price (£)") +
+       x = "Expected Price (£)") +
   sbs_theme()
 
 design <- "
-#AA#
+AABB
 CCDD
 EEFF
 GGHH
 IIJJ
-KKKK
-KKKK
+KKLL
+MMMM
+MMMM
+MMMM
 "
 
-p_figs <- p9 + p2 + p3 + p4 + p4.5 + p5 + p6 + p7 + p8 + p1 + plot_layout(design = design)
+p_figs <- p10 + p2 + p3 + p4 + p4.5 + p5 + p6 + p7 + p8 + p9 + p9.1 + p9.2 + p1 + plot_layout(design = design)
 p_figs
 
 ## Aberdeenshire far -------------------------------------------------------
