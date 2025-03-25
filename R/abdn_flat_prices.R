@@ -1,4 +1,5 @@
 # Script to analyse rent Prices in Aberdeenshire
+# See web_scrape.R for scraping data from ASPC
 # Deon Roos
 
 # Packages ----------------------------------------------------------------
@@ -18,24 +19,34 @@ library(jsonlite)
 library(dotenv)
 library(stringr)
 library(tidyr)
-library(dplyr)
-library(sf)
+library(DBI)
+library(RSQLite)
 
+# Environment -------------------------------------------------------------
 dotenv::load_dot_env()
 register_google(key = Sys.getenv("GOOGLE_MAPS_API_KEY"))
 api_key <- Sys.getenv("GOOGLE_MAPS_API_KEY")
 source("sbs_theme.R")
 theme_set(sbs_theme())
 
-# df <- read_sheet("https://docs.google.com/spreadsheets/d/1ay5qIHe6MK1ZLZLLDDgAVWbfnvFjc2wX2HWLeto2LKw/edit?usp=sharing",
-#                  sheet = "Sheet1", 
-#                  trim_ws = TRUE,
-#                  na = "NA")
+# Data --------------------------------------------------------------------
 
-file_path <- "rent_data.csv"
-df <- read.csv(file_path, header = TRUE)
+# Connect to SQLite -------------------------------------------------------
+db <- dbConnect(SQLite(), dbname = "property_app_db.sqlite")
 
-# Removing beaurocrat variables
+# Attempt to read from SQLite first ---------------------------------------
+table_name <- "abdn_flats"
+csv_path   <- "rent_data.csv"
+
+if (dbExistsTable(db, table_name)) {
+  message("Reading flat data from SQLite table: ", table_name)
+  df <- dbReadTable(db, table_name)
+} else {
+  message("No 'abdn_flats' table in DB; reading from CSV instead.")
+  df <- read.csv(csv_path, header = TRUE)
+}
+
+# Removing redundant variables
 df <- df |> 
   select(-PropertyType, -PriceType, -RentalPricePeriod, -UnderOffer, -FormattedClosingDate,
          -FormattedClosedDate, -OrganisationName, -County, -Country, -CoordinateSystemId, 
@@ -44,6 +55,10 @@ df <- df |>
          -SolicitorAccount_WebsiteAddress, -FormattedPrice, -ViewingArrangements, -ViewingTiming,
          -BookingUrl, -IsSellerManaged,
          -CategorisationDescription)
+
+# Data processing ---------------------------------------------------------
+
+df <- df[!duplicated(paste(df$AddressLine1, df$Price)),]
 
 df$Rooms <- df$Bedrooms + df$PublicRooms
 df$DateAdded <- as.Date(df$DateAdded)
@@ -162,6 +177,9 @@ ggplot(df) +
 
 write.table(df, "C:/006-BI3010/Workshops/Workshop 2 - Data vis/Data/abdn_flats.txt", row.names = FALSE)
 
+dbDisconnect(db)
+
+
 # Linear model ------------------------------------------------------------
 lm1 <- lm(Price ~ FloorArea + Rooms + HouseType + EPC + Tax + Furnished + DayAdded,
           data = df)
@@ -204,7 +222,7 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p1 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = FloorArea, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
-  geom_point(data = df, aes(x = FloorArea, y = Price), size = 1) +
+  geom_point(data = df, aes(x = FloorArea, y = Price), size = 0.5) +
   geom_line(data = nu_data, aes(x = FloorArea, y = fit)) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
@@ -232,7 +250,7 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p2 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = Rooms, y = fit, ymin = low, ymax = upp), fill = "white", alpha = 0.4) +
-  geom_point(data = df, aes(x = Rooms, y = Price), size = 1) +
+  geom_point(data = df, aes(x = Rooms, y = Price), size = 0.5) +
   geom_line(data = nu_data, aes(x = Rooms, y = fit)) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
@@ -260,7 +278,7 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p3 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = EPC, ymin = low, ymax = upp), colour = "white", width = 0.1) +
-  geom_point(data = nu_data, aes(x = EPC, y = fit)) +
+  geom_point(data = nu_data, aes(x = EPC, y = fit), size = 1) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
        x = "EPC") +
@@ -287,7 +305,7 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p4 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = Tax, ymin = low, ymax = upp), colour = "white", width = 0.1) +
-  geom_point(data = nu_data, aes(x = Tax, y = fit)) +
+  geom_point(data = nu_data, aes(x = Tax, y = fit), size = 1) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
        x = "Tax Band") +
@@ -314,7 +332,7 @@ nu_data$upp <- prds$fit + prds$se.fit * 1.96
 
 p5 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = Furnished, ymin = low, ymax = upp), colour = "white", width = 0.1) +
-  geom_point(data = nu_data, aes(x = Furnished, y = fit)) +
+  geom_point(data = nu_data, aes(x = Furnished, y = fit), size = 1) +
   scale_y_continuous(labels = scales::comma) +
   labs(y = "Asking Price",
        x = "Furnished") +
@@ -380,7 +398,7 @@ GG
 lm_plots <- p1 + p2 + p3 + p4 + p5 + p6 + p7 + plot_layout(design = design)
 lm_plots
 
-ggsave("C:/flat_rent/www/lm_plots.png", plot = lm_plots)
+ggsave("C:/flat_rent/www/lm_plots.png", plot = lm_plots, width = 18, height = 14, dpi = 400)
 
 
 # GAM with space ----------------------------------------------------------
@@ -454,7 +472,6 @@ nu_data <- nu_data[complete.cases(nu_data),]
 p1 <- ggmap(abdnshire) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white") +
-  geom_point(data = df, aes(x = Longitude, y = Latitude), colour = "white", size = 0.5) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitude",
        y = "Latitude",
@@ -502,8 +519,6 @@ nu_data <- nu_data[complete.cases(nu_data),]
 p2 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), na.rm = TRUE, alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white") +
-  geom_point(data = df[df$Latitude > min_lat & df$Latitude < max_lat &
-                         df$Longitude > min_lon & df$Longitude < max_lon,], aes(x = Longitude, y = Latitude), colour = "white", size = 0.5) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitude",
        y = "Latitude",
@@ -513,7 +528,7 @@ p2
 
 gam_space <- p1 / p2
 
-ggsave("C:/flat_rent/www/rent_maps.png", plot = gam_space)
+ggsave("C:/flat_rent/www/rent_maps.png", plot = gam_space, width = 18, height = 14, dpi = 400)
 
 ## Square meters -----------------------------------------------------------
 
@@ -723,7 +738,7 @@ GG
 
 gam_plots <- p3 + p4 + p5 + p6 + p7 + p8 + p9 + plot_layout(design = design)
 gam_plots
-ggsave("C:/flat_rent/www/rent_figs.png", plot = gam_plots)
+ggsave("C:/flat_rent/www/rent_figs.png", plot = gam_plots, width = 18, height = 14, dpi = 400)
 
 # Leaflet map -------------------------------------------------------------
 
@@ -754,6 +769,7 @@ abdn_map <- leaflet(df) %>%
     label = ~paste0(
       Address, " (£", Price, ")"
     ),
+    clusterOptions = markerClusterOptions(maxClusterRadius = 0),
     popup = paste0(
       "<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;'>",
       "<span style='font-size: 20px;'><b>", df$Address, "</b></span><br>",

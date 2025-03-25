@@ -6,15 +6,15 @@ function ()
     update_geom_defaults("bar", list(fill = "#72758d", colour = "white"))
     update_geom_defaults("boxplot", list(fill = "#72758d", colour = "white"))
     theme_minimal(base_size = 15) + theme(panel.background = element_blank(), 
-        plot.background = element_rect(fill = "black"), plot.title = element_text(color = "white", 
+        plot.background = element_rect(fill = "#202123"), plot.title = element_text(color = "white", 
             size = 14), plot.subtitle = element_text(color = "white", 
             size = 12), axis.title = element_text(color = "white", 
             size = 12), axis.text = element_text(color = "white", 
             size = 8), legend.title = element_text(color = "white", 
             size = 12), legend.text = element_text(color = "white", 
             size = 8), strip.text = element_text(color = "white", 
-            size = 8), strip.background = element_rect(color = "#72758d", 
-            fill = "black", size = 1), panel.border = element_rect(color = "#72758d", 
+            size = 8), strip.background = element_rect(color = "#202123", 
+            fill = "#202123", size = 1), panel.border = element_rect(color = "#202123", 
             fill = NA, size = 1), panel.grid.major = element_line(color = "#444654"), 
         panel.grid.minor = element_line(color = "#444654"))
 }
