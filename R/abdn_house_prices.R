@@ -200,6 +200,20 @@ df <- df |> mutate(
   )
 )
 
+# Standardised prediction
+df_std <- df |> 
+  mutate(std_Latitude = 57.15403687694044,
+         std_Longitude = -2.1006741041665826,
+         std_UR8Name = "Large Urban Areas",
+         std_days_since = 100)
+df_std <- df_std |> 
+  mutate(Latitude = std_Latitude,
+         Longitude = std_Longitude,
+         UR8Name = std_UR8Name,
+         days_since = std_days_since)
+std_prds <- predict(m1, newdata = df_std)
+df <- df |> mutate(std_expect = round(std_prds, 0))
+
 # Viewing criteria --------------------------------------------------------
 df <- df |> 
   mutate(viewing = ifelse(
@@ -876,6 +890,8 @@ abdn_map_Price <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b><abbr title='This prediction assumes all properties were sold on the same day and were in the same location to make comparisons easier.'>Standardised Expected Price:</abbr></b>",
+      paste0("£", scales::comma(round(std_expect, digits = -3))),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
       paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",      
@@ -923,6 +939,8 @@ abdn_map_Price <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b><abbr title='This prediction assumes all properties were sold on the same day and were in the same location to make comparisons easier.'>Standardised Expected Price:</abbr></b>",
+      paste0("£", scales::comma(round(std_expect, digits = -3))),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
       paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",      
@@ -970,6 +988,8 @@ abdn_map_Price <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b><abbr title='This prediction assumes all properties were sold on the same day and were in the same location to make comparisons easier.'>Standardised Expected Price:</abbr></b>",
+      paste0("£", scales::comma(round(std_expect, digits = -3))),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
       paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",      
@@ -1017,6 +1037,8 @@ abdn_map_Price <- leaflet() %>%
       "<br><b>Expected Price:</b>", paste0("£", scales::comma(round(expect, digits = -3))),
       "<br><b>Expected Price Range:</b>", 
       paste0("£", round(low / 1000, digits = 0), "k - ", round(upp / 1000, digits = 0), "k"),
+      "<br><b><abbr title='This prediction assumes all properties were sold on the same day and were in the same location to make comparisons easier.'>Standardised Expected Price:</abbr></b>",
+      paste0("£", scales::comma(round(std_expect, digits = -3))),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
       paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
       "<hr>",      
