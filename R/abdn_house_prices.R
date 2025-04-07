@@ -894,7 +894,7 @@ abdn_map_Price <- leaflet() %>%
       paste0("£", scales::comma(round(std_expect, digits = -3))),
       "<br><b>Price per m<sup>2</sup>:</b> ", 
       paste0( "£", round(Price/FloorArea, digits = 0), " per m<sup>2</sup>"),  
-      "<hr>",      
+      "<hr>",   
       "<span style='font-size: 16px;'><b>House details</b></span>",
       "<br><b>Date added:</b> ", date,
       "<br><b>House Type:</b> ", HouseType,
@@ -1068,7 +1068,7 @@ abdn_map_Price <- leaflet() %>%
     options = layersControlOptions(collapsed = FALSE)
   )
 
-saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = TRUE)
+saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = FALSE)
 
 # Gatehouse prediction ----------------------------------------------------
 gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
@@ -1133,6 +1133,7 @@ map4 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), na.rm = TRUE, alpha = 0.6) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
+  geom_point(data = df, aes(x = Longitude, y = Latitude), colour = "white") +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
   labs(x = "Longitude",
        y = "Latitude",
