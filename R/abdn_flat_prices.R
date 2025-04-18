@@ -35,7 +35,7 @@ theme_set(sbs_theme())
 db <- dbConnect(SQLite(), dbname = "property_app_db.sqlite")
 
 # Attempt to read from SQLite first ---------------------------------------
-table_name <- "abdn_flats"
+table_name <- "rent_data"
 csv_path   <- "rent_data.csv"
 
 if (dbExistsTable(db, table_name)) {
@@ -48,13 +48,15 @@ if (dbExistsTable(db, table_name)) {
 
 # Removing redundant variables
 df <- df |> 
-  select(-PropertyType, -PriceType, -RentalPricePeriod, -UnderOffer, -FormattedClosingDate,
-         -FormattedClosedDate, -OrganisationName, -County, -Country, -CoordinateSystemId, 
-         -WellKnownText, -ClosingDateVisible, -ClosedDateVisible, -ClosedMessage, -HideOpenActionsDisplay,
-         -ClosingDate, -ClosedDate, -IsOpen, -ResidentialType, -HouseFormat, -SolicitorAccount_Id,
-         -SolicitorAccount_WebsiteAddress, -FormattedPrice, -ViewingArrangements, -ViewingTiming,
-         -BookingUrl, -IsSellerManaged,
-         -CategorisationDescription)
+  select(-starts_with("Mobile."),
+         -starts_with("Broadband."),
+         -PropertyType, -PriceType, -RentalPricePeriod, -UnderOffer, -FormattedClosedDate,
+         -CoordinateSystemId, -WellKnownText, -ClosingDateVisible, -ClosedDateVisible, -ClosedMessage, 
+         -HideOpenActionsDisplay, -ClosingDate, -ClosedDate, -IsOpen, -ResidentialType, -HouseFormat, 
+         -SolicitorAccount_Id, -SolicitorAccount_WebsiteAddress, -FormattedPrice, -ViewingArrangements, 
+         -ViewingTiming, -BookingUrl, -IsSellerManaged, -CategorisationDescription,
+         -FormattedClosingDate, -OrganisationName, -County, -Country)
+
 
 # Data processing ---------------------------------------------------------
 

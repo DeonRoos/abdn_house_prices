@@ -84,7 +84,7 @@ if (length(all_properties) > 0) {
 # Process -----------------------------------------------------------------
 if (nrow(new_properties_df) > 0) {
   new_properties_df <- new_properties_df |>
-    select(-Photos) |>
+    select(-any_of(c("Photos", "Broadband", "Mobile"))) |>
     unnest(Location) |>
     unnest(Spatial) |>
     unnest(Geography) |>
@@ -131,10 +131,13 @@ if (nrow(new_properties_df) > 0) {
       AddressLineDash = str_replace_all(AddressLine1, " ", "-"),
       property_url    = paste0("https://www.aspc.co.uk/search/property/", Id, "/", AddressLineDash, "/", City, "/")
     )
+  
   new_properties_df$FloorArea[new_properties_df$FloorArea == 0] <- NA
+  
   if (nrow(existing_data) > 0) {
     new_properties_df <- anti_join(new_properties_df, existing_data, by = c("Id", "Price"))
   }
+  
   final_data <- bind_rows(existing_data, new_properties_df)
 } else {
   final_data <- existing_data

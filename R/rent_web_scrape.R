@@ -83,12 +83,12 @@ if (length(all_properties) > 0) {
 
 # Process -----------------------------------------------------------------
 if (nrow(new_properties_df) > 0) {
-  new_properties_df <- new_properties_df %>%
-    select(-Photos) %>%
-    unnest(Location) %>%
-    unnest(Spatial) %>%
-    unnest(Geography) %>%
-    unnest(SolicitorAccount, names_sep = "_") %>%
+  new_properties_df <- new_properties_df |>
+    select(-any_of(c("Photos", "Broadband", "Mobile"))) |>
+    unnest(Location) |>
+    unnest(Spatial) |>
+    unnest(Geography) |>
+    unnest(SolicitorAccount, names_sep = "_") |>
     mutate(
       furnished = ifelse(
         str_detect(CategorisationDescription, "Fully furnished"), 
@@ -96,10 +96,10 @@ if (nrow(new_properties_df) > 0) {
         ifelse(str_detect(CategorisationDescription, "Unfurnished"), "Unfurnished", "Part furnished")
       ),
       has_garden = ifelse(str_detect(CategorisationDescription, "Garden"), "Yes", "No"),
-      council_tax_band = str_extract(CategorisationDescription, "(?i)CT\\s*band\\s*-\\s*([A-Z])") %>%
+      council_tax_band = str_extract(CategorisationDescription, "(?i)CT\\s*band\\s*-\\s*([A-Z])") |>
         str_extract("[A-Z]$"),
       council_tax_band = ifelse(council_tax_band == "T", NA, council_tax_band),
-      epc_band = str_extract(CategorisationDescription, "(?i)EPC\\s*band\\s*-\\s*([A-Z])") %>%
+      epc_band = str_extract(CategorisationDescription, "(?i)EPC\\s*band\\s*-\\s*([A-Z])") |>
         str_extract("[A-Z]$"),
       epc_band = ifelse(epc_band == "T", NA, epc_band),
       HouseType = case_when(
@@ -109,18 +109,18 @@ if (nrow(new_properties_df) > 0) {
         TRUE ~ NA_character_
       ),
       DateAdded = as.Date(DateAdded)
-    ) %>%
+    ) |>
     mutate(
       Coordinates = map(WellKnownText, extract_coordinates),
       Latitude    = sapply(Coordinates, function(x) x[2]),
       Longitude   = sapply(Coordinates, function(x) x[1])
-    ) %>%
+    ) |>
     mutate(
       UTM_Coordinates = map(Coordinates, convert_to_utm),
       UTM_Easting     = sapply(UTM_Coordinates, function(x) x[1]),
       UTM_Northing    = sapply(UTM_Coordinates, function(x) x[2])
-    ) %>%
-    select(-Coordinates, -UTM_Coordinates) %>%
+    ) |>
+    select(-Coordinates, -UTM_Coordinates) |>
     mutate(
       AddressLineDash = str_replace_all(AddressLine1, " ", "-"),
       property_url    = paste0(

@@ -122,6 +122,10 @@ df |>
   geom_line(size = 0.5) +
   labs(x = "Month", y = "Number of Listings", color = "House Type")
 
+ggplot(df, aes(x = Price)) +
+  geom_histogram(alpha = 0.6, binwidth = 10000) +
+  labs(x = "Price")
+
 ggplot(df, aes(x = HouseType, y = Price, fill = HouseType)) +
   geom_boxplot(alpha = 0.6) +
   labs(x = "EPC", y = "Price")
@@ -1077,6 +1081,13 @@ preds$fit
 preds$fit - preds$se.fit * 1.96
 preds$fit + preds$se.fit * 1.96
 
+gatehouse$date <- Sys.Date()
+gatehouse <- gatehouse %>%
+  mutate(days_since = as.numeric(difftime(date, earliest_date, units = "days")))
+preds <- predict(m1, gatehouse, se.fit = TRUE)
+preds$fit
+preds$fit - preds$se.fit * 1.96
+preds$fit + preds$se.fit * 1.96
 
 gatehouse$epc_band <- "D"
 preds <- predict(m1, gatehouse, se.fit = TRUE)
@@ -1094,8 +1105,6 @@ preds$fit
 preds$fit - preds$se.fit * 1.96
 preds$fit + preds$se.fit * 1.96
 
-
-## Aberdeen ----------------------------------------------------------------
 
 min_Longitude <- -2.28
 max_Longitude <- -2.05
