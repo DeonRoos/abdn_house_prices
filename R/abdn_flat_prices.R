@@ -138,6 +138,9 @@ df <- df %>%
 ## EDA ---------------------------------------------------------------------
 
 ggplot(df) +
+  geom_point(aes(x = DateAdded, y = Price))
+
+ggplot(df) +
   geom_point(aes(x = FloorArea, y = Price))
 
 ggplot(df) +
