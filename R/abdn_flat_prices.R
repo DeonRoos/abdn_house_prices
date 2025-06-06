@@ -447,7 +447,7 @@ lat_bar <- (min(df$Latitude, na.rm = TRUE) + max(df$Latitude, na.rm = TRUE))/2
 
 abdnshire <- get_map(location = c(lon_bar, lat_bar), 
                      zoom = 10, 
-                     maptype = "hybrid", 
+                     mapHouseType = "hybrid", 
                      source = "google", 
                      messaging = FALSE)
 
@@ -494,7 +494,7 @@ max_lat <- 57.21
 
 abdn <- get_map(location = c(-2.1433691553190624, 57.149481894948565), 
                 zoom = 12, 
-                maptype = "hybrid", 
+                mapHouseType = "hybrid", 
                 source = "google", 
                 messaging = FALSE)
 

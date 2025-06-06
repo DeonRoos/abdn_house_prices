@@ -49,7 +49,10 @@ df <- df |>
          -BookingUrl, -IsSellerManaged,
          -CategorisationDescription)
 
+# Weird houses
 df <- df[df$AddressLine1 != "Blackbriggs",]
+df <- df[df$AddressLine1 != "Milton Of Leask House",]
+
 df <- df[!duplicated(paste(df$AddressLine1, df$Price)),]
 df <- df[df$Latitude > 56.077553904659,]
 df$rooms <- df$Bedrooms + df$PublicRooms
@@ -82,6 +85,38 @@ df <- df |>
          -UR3Desc, -UR3Name, -UR3Class,
          -UR6Desc, -UR6Name, -UR6Class,
          -UR8Desc, -UR8Class)
+
+
+# SIMD --------------------------------------------------------------------
+
+simd_shp <- st_read("C:/abdn_house_Prices/data/SIMD/SG_SIMD_2020.shp")
+simd_shp <- st_make_valid(simd_shp)
+df_sf <- st_as_sf(df, coords = c("Longitude", "Latitude"), crs = 4326)
+
+simd_shp <- st_transform(simd_shp, crs = st_crs(df_sf))
+df <- st_join(df_sf, simd_shp, left = TRUE)
+
+coords <- st_coordinates(df)
+df$Longitude <- coords[, 1]
+df$Latitude <- coords[, 2]
+df$geometry <- NULL
+
+df <- df |>
+  mutate(
+    HouseOCrat = as.numeric(gsub("%", "", HouseOCrat)) / 100,
+    HouseNCrat = as.numeric(gsub("%", "", HouseNCrat)) / 100,
+    EduUniver = as.numeric(gsub("%", "", EduUniver)) / 100,
+    EduPartici = as.numeric(gsub("%", "", EduPartici)) / 100,
+    EduAttend = as.numeric(gsub("%", "", EduAttend)) / 100,
+    HlthLBWTPc = as.numeric(gsub("%", "", HlthLBWTPc)) / 100,
+    HlthDprsPc = as.numeric(gsub("%", "", HlthDprsPc)) / 100,
+    EmpRate = as.numeric(gsub("%", "", EmpRate)) / 100,
+    IncRate = as.numeric(gsub("%", "", IncRate)) / 100,
+  )
+
+df <- df |> 
+  select(-Shape_Leng.y, -Shape_Area.y, -HouseRank, -HouseNumOC, -HouseNumNC, -CrimeRank, -GAccRank,
+         -EduRank, -HlthRank, -Vigintilv2, -Decilev2, -Quintilev2, -WAPE2017, -SAPE2017)
 
 # EDA ---------------------------------------------------------------------
 ggplot(df, aes(x = Price, fill = HouseType)) +
@@ -148,6 +183,11 @@ ggplot(df, aes(x = epc_band, y = Price)) +
   geom_boxplot(alpha = 0.6) +
   labs(x = "EPC", y = "Price")
 
+ggplot(df, aes(x = Rankv2, y = Price)) +
+  geom_point(alpha = 0.6, size = 0.5) +
+  labs(x = "SIMD Rank", y = "Price") +
+  facet_wrap(~HouseType)
+
 df[df$date == Sys.Date(),]
 
 df[df$Bedrooms == 2 &
@@ -173,7 +213,7 @@ df$SolicitorAccount_Name <- factor(df$SolicitorAccount_Name)
 
 m1 <- bam(
   Price ~
-    s(days_since, by = HouseType, k = 5, bs = "cr") +
+    s(days_since, by = HouseType, k = 10, bs = "cr") +
     t2(Longitude, Latitude, k = 30, m = mp, bs = "gp") +
     UR8Name +
     HouseType +
@@ -181,6 +221,7 @@ m1 <- bam(
     s(Bedrooms, k = 3, bs = "cr") +
     s(PublicRooms, k = 3, bs = "cr") +
     s(Bathrooms, k = 3, bs = "cr") +
+    Rankv2 +
     num_floors + parking_type + has_garden + epc_band + council_tax_band,
   data = df,
   method = "fREML"
@@ -243,6 +284,7 @@ dream_house <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -270,6 +312,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 nu_data$HouseType <- factor(nu_data$HouseType, levels = c("Detached",
@@ -307,6 +350,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -338,6 +382,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -370,6 +415,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -401,6 +447,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -433,6 +480,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -465,6 +513,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -497,6 +546,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -531,6 +581,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = unique(df$parking_type),
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -565,6 +616,7 @@ nu_data <- data.frame(
   has_garden = unique(df$has_garden),
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -599,6 +651,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = unique(df$num_floors),
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -633,6 +686,7 @@ nu_data <- data.frame(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -649,6 +703,40 @@ p8 <- ggplot() +
   labs(y = "Expected\nPrice",
        x = "Urban | Rural\nDesignation")
 p8
+
+
+
+# SIMD --------------------------------------------------------------------
+
+nu_data <- data.frame(
+  Latitude = median(df$Latitude), 
+  Longitude = median(df$Longitude),
+  HouseType = "Detached",
+  UR8Name = "Accessible Rural Areas",
+  epc_band = "C",
+  council_tax_band = "E",
+  rooms = median(df$rooms),
+  Bedrooms = median(df$Bedrooms),
+  Bathrooms = median(df$Bathrooms),
+  PublicRooms = median(df$PublicRooms),
+  FloorArea = median(df$FloorArea),
+  days_since = median(df$days_since),
+  has_garden = "Yes",
+  num_floors = 1,
+  parking_type = "Garage",
+  Rankv2 = seq(min(df$Rankv2), max(df$Rankv2), length.out = 25),
+  SolicitorAccount_Name = "Aberdein Considine"
+)
+
+prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
+nu_data <- nu_data |> 
+  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+
+ggplot() +
+  geom_ribbon(data = nu_data, aes(x = Rankv2, y = fit, ymin = low, ymax = upp), alpha = 1) +
+  geom_line(data = nu_data, aes(x = Rankv2, y = fit)) +
+  labs(y = "Expected\nPrice",
+       x = "SIMD Rank")
 
 ## Predicted versus response -----------------------------------------------
 
@@ -710,6 +798,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -761,6 +850,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -813,6 +903,7 @@ nu_data <- expand.grid(
   has_garden = "Yes",
   num_floors = 1,
   parking_type = "Garage",
+  Rankv2 = median(df$Rankv2),
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
@@ -1133,6 +1224,7 @@ nu_data <- expand.grid(
   has_garden = gatehouse$has_garden,
   num_floors = gatehouse$num_floors,
   parking_type = gatehouse$parking_type,
+  Rankv2 = gatehouse$Rankv2,
   SolicitorAccount_Name = gatehouse$SolicitorAccount_Name
 )
 
