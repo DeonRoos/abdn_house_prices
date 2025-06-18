@@ -19,6 +19,7 @@ library(stringr)
 library(tidyr)
 library(DBI)
 library(RSQLite)
+library(tweedie)
 
 dotenv::load_dot_env()
 register_google(key = Sys.getenv("GOOGLE_MAPS_API_KEY"))
@@ -223,6 +224,7 @@ m1 <- bam(
     s(Bathrooms, k = 3, bs = "cr") +
     Rankv2 +
     num_floors + parking_type + has_garden + epc_band + council_tax_band,
+  family = Tweedie(p = 1.5, link = power(0)),
   data = df,
   method = "fREML"
 )
@@ -232,41 +234,35 @@ summary(m1)
 gam.check(m1)
 
 # Predictions -------------------------------------------------------------
-prds <- predict(m1, se.fit = TRUE)
-df <- df |> mutate(
-  expect = round(prds$fit, 0),
-  low = round(prds$fit - 1.96 * prds$se.fit),
-  upp = round(prds$fit + 1.96 * prds$se.fit),
-  diffn = Price - expect,
-  over = case_when(
-    Price > upp ~ "OverPriced",
-    Price < low ~ "UnderPriced",
-    TRUE ~ "Fairly Priced"
+set.seed(1988)
+n_sim <- 1000
+prds <- predict(m1, newdata = df, type = "link", se.fit = FALSE)
+mu <- exp(prds)
+sims <- replicate(n_sim, rtweedie(n = length(mu), mu = mu, phi = m1$scale, power = 1.5))
+
+df <- df %>%
+  mutate(
+    expect = rowMeans(sims),
+    low    = apply(sims, 1, quantile, probs = 0.025),
+    upp    = apply(sims, 1, quantile, probs = 0.975),
+    diffn  = Price - expect,
+    over   = case_when(
+      Price > upp ~ "OverPriced",
+      Price < low ~ "UnderPriced",
+      TRUE         ~ "Fairly Priced"
+    )
   )
-)
 
 # Standardised prediction
-df_std <- df |> 
-  mutate(std_Latitude = 57.15403687694044,
-         std_Longitude = -2.1006741041665826,
-         std_UR8Name = "Large Urban Areas",
-         std_days_since = 100)
-df_std <- df_std |> 
-  mutate(Latitude = std_Latitude,
-         Longitude = std_Longitude,
-         UR8Name = std_UR8Name,
-         days_since = std_days_since)
-std_prds <- predict(m1, newdata = df_std)
-df <- df |> mutate(std_expect = round(std_prds, 0))
-
-# Viewing criteria --------------------------------------------------------
-df <- df |> 
-  mutate(viewing = ifelse(
-    ((over == "UnderPriced" | over == "Fairly Priced") & Price <= 250000) | 
-      ((over == "OverPriced" | over == "Fairly Priced") & expect <= 250000) &
-      FloorArea > 80 & HouseType != "terrace",
-    "View", "Meh")
+df_std <- df %>%
+  mutate(
+    Latitude       = 57.1540,
+    Longitude      = -2.1007,
+    UR8Name        = "Large Urban Areas",
+    days_since     = 100
   )
+pred_std <- predict(m1, newdata = df_std, type = "link", se.fit = FALSE)
+df$std_expect <- round(exp(pred_std), 0)
 
 # House Price prediction for a specific house -----------------------------
 dream_house <- data.frame(
@@ -288,12 +284,11 @@ dream_house <- data.frame(
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
-prds <- predict(m1, newdata = dream_house, se.fit = TRUE)
-paste0("# £", round(prds$fit, -3)/1000, "k [£",
-       round(prds$fit - 1.96 * prds$se.fit, -3)/1000, "k-£",
-       round(prds$fit + 1.96 * prds$se.fit, -3)/1000, "k] (n = ",
-       nrow(df), ") ", stringr::str_to_title(dream_house$HouseType)
-)
+prds_dream <- predict(m1, newdata = dream_house, type = "link", se.fit = TRUE)
+dh_mean <- exp(prds_dream$fit)
+dh_low <- exp(prds_dream$fit - 1.96 * prds_dream$se.fit)
+dh_upp <- exp(prds_dream$fit + 1.96 * prds_dream$se.fit)
+paste0("# £", round(dh_mean, -3)/1000, "k [£", round(dh_low, -3)/1000, "-£", round(dh_upp, -3)/1000, "k]")
 
 ## Over time ---------------------------------------------------------------
 
@@ -322,7 +317,11 @@ nu_data$HouseType <- factor(nu_data$HouseType, levels = c("Detached",
 nu_data$date <- min(df$date) + nu_data$days_since
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p1 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = date, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -356,7 +355,11 @@ nu_data <- expand.grid(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p2 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = FloorArea, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -388,7 +391,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p3 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = HouseType, y = fit, ymin = low, ymax = upp), width = 0.1, colour = "white") +
@@ -421,7 +428,11 @@ nu_data <- expand.grid(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p4 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = Bedrooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -453,7 +464,11 @@ nu_data <- expand.grid(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p4.5 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = PublicRooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -486,7 +501,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p5 <- ggplot() +
   geom_ribbon(data = nu_data, aes(x = Bathrooms, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -519,7 +538,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p6 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = epc_band, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -552,7 +575,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p7 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = council_tax_band, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -587,7 +614,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p9 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = parking_type, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -622,7 +653,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p9.1 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = has_garden, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -657,7 +692,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p9.2 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = num_floors, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -692,7 +731,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 p8 <- ggplot() +
   geom_errorbar(data = nu_data, aes(x = UR8Name, y = fit, ymin = low, ymax = upp), width = 0.1, linewidth = 1, colour = "white") +
@@ -730,7 +773,11 @@ nu_data <- data.frame(
 
 prds <- predict(m1, newdata = nu_data, se.fit = TRUE)
 nu_data <- nu_data |> 
-  mutate(fit = prds$fit, low = fit - 1.96 * prds$se.fit, upp = fit + 1.96 * prds$se.fit)
+  mutate(
+    fit = exp(prds$fit),
+    low = exp(prds$fit - 1.96 * prds$se.fit),
+    upp = exp(prds$fit + 1.96 * prds$se.fit)
+  )
 
 ggplot() +
   geom_ribbon(data = nu_data, aes(x = Rankv2, y = fit, ymin = low, ymax = upp), alpha = 1) +
@@ -740,20 +787,13 @@ ggplot() +
 
 ## Predicted versus response -----------------------------------------------
 
-df$low1 <- 0 - sigma(m1) + df$expect
-df$upp1 <- 0 + sigma(m1) + df$expect
-df$low2 <- 0 - 2 * sigma(m1) + df$expect
-df$upp2 <- 0 + 2 * sigma(m1) + df$expect
-
 p10 <- ggplot(df) +
-  geom_ribbon(aes(x = expect, ymin = low1, ymax = upp1), fill = "red", alpha = 0.4) +
-  geom_ribbon(aes(x = expect, ymin = low2, ymax = upp2), fill = "red", alpha = 0.4) +
-  geom_point(aes(x = expect, y = Price), size = 1, alpha = 0.2) +
+  geom_point(aes(y = expect, x = Price), size = 1, alpha = 0.2) +
   geom_abline(intercept = 0, slope = 1, colour = "white") +
-  scale_x_continuous(labels = scales::comma) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(y = "Listed Price (£)",
-       x = "Expected Price (£)") +
+  scale_x_continuous(labels = scales::comma, limits = c(0, 2000000)) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 2000000)) +
+  labs(x = "Listed Price (£)",
+       y = "Expected Price (£)") +
   sbs_theme()
 
 design <- "
@@ -802,7 +842,7 @@ nu_data <- expand.grid(
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
-nu_data$fit <- predict(m1, newdata = nu_data)
+nu_data$fit <- predict(m1, newdata = nu_data, type = "response")
 
 nu_data$fit[exclude.too.far(
   nu_data$Latitude, nu_data$Longitude,
@@ -854,7 +894,7 @@ nu_data <- expand.grid(
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
-nu_data$fit <- predict(m1, newdata = nu_data)
+nu_data$fit <- predict(m1, newdata = nu_data, type = "response")
 
 nu_data$fit[exclude.too.far(
   nu_data$Latitude, nu_data$Longitude,
@@ -907,7 +947,7 @@ nu_data <- expand.grid(
   SolicitorAccount_Name = "Aberdein Considine"
 )
 
-nu_data$fit <- predict(m1, newdata = nu_data)
+nu_data$fit <- predict(m1, newdata = nu_data, type = "response")
 
 nu_data$fit[exclude.too.far(
   nu_data$Latitude, nu_data$Longitude,
@@ -921,8 +961,8 @@ map3 <- ggmap(abdn) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, binwidth = 50000) +
   geom_contour(data = nu_data, aes(x = Longitude , y = Latitude, z = fit), colour = "white", size = 0.5, linetype = 2, binwidth = 25000) +
   scale_fill_viridis_c(option = "magma", labels = scales::comma, na.value = "transparent") +
-  labs(x = "Longitudegitude",
-       y = "Latitudeitude",
+  labs(x = "Longitude",
+       y = "Latitude",
        fill = "Expected\nPrice (£)") +
   sbsvoid_theme()
 map3
@@ -1003,6 +1043,11 @@ abdn_map_Price <- leaflet() %>%
       "EPC: ", toupper(epc_band), "<br>",
       "Council Tax: ", toupper(council_tax_band), "<br>",
       "</td></tr>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      "Floors: ", num_floors, "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      "Deprivation Rank: ", Rankv2, "<br>",
+      "</td></tr>",
       "</table>",
       "<hr>",
       "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
@@ -1051,6 +1096,11 @@ abdn_map_Price <- leaflet() %>%
       FloorArea, " m<sup>2</sup>", "<br>",
       "EPC: ", toupper(epc_band), "<br>",
       "Council Tax: ", toupper(council_tax_band), "<br>",
+      "</td></tr>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      "Floors: ", num_floors, "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      "Deprivation Rank: ", Rankv2, "<br>",
       "</td></tr>",
       "</table>",
       "<hr>",
@@ -1101,6 +1151,11 @@ abdn_map_Price <- leaflet() %>%
       "EPC: ", toupper(epc_band), "<br>",
       "Council Tax: ", toupper(council_tax_band), "<br>",
       "</td></tr>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      "Floors: ", num_floors, "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      "Deprivation Rank: ", Rankv2, "<br>",
+      "</td></tr>",
       "</table>",
       "<hr>",
       "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
@@ -1150,6 +1205,11 @@ abdn_map_Price <- leaflet() %>%
       "EPC: ", toupper(epc_band), "<br>",
       "Council Tax: ", toupper(council_tax_band), "<br>",
       "</td></tr>",
+      "<tr><td style='width: 50%; vertical-align: top;'>",
+      "Floors: ", num_floors, "<br>",
+      "</td><td style='width: 50%; vertical-align: top;'>",
+      "Deprivation Rank: ", Rankv2, "<br>",
+      "</td></tr>",
       "</table>",
       "<hr>",
       "<br><a href='", property_url, "' target='_blank' style='color: #2A5DB0; text-decoration: none;'><b>House listing</b></a>",
@@ -1166,36 +1226,19 @@ abdn_map_Price <- leaflet() %>%
 saveWidget(abdn_map_Price, here("C:/abdn_app", "www", "abdn_homes_pricing.html"), selfcontained = FALSE)
 
 # Gatehouse prediction ----------------------------------------------------
-gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
-preds <- predict(m1, gatehouse, se.fit = TRUE)
-preds$fit
-preds$fit - preds$se.fit * 1.96
-preds$fit + preds$se.fit * 1.96
-
-gatehouse$date <- Sys.Date()
-gatehouse <- gatehouse %>%
-  mutate(days_since = as.numeric(difftime(date, earliest_date, units = "days")))
-preds <- predict(m1, gatehouse, se.fit = TRUE)
-preds$fit
-preds$fit - preds$se.fit * 1.96
-preds$fit + preds$se.fit * 1.96
-
-gatehouse$epc_band <- "D"
-preds <- predict(m1, gatehouse, se.fit = TRUE)
-preds$fit
-preds$fit - preds$se.fit * 1.96
-preds$fit + preds$se.fit * 1.96
-
-gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage",]
-gatehouse$epc_band <- "C"
-gatehouse$Bedrooms <- 3
-gatehouse$Bathrooms <- 2
-gatehouse$FloorArea <- 110
-preds <- predict(m1, gatehouse, se.fit = TRUE)
-preds$fit
-preds$fit - preds$se.fit * 1.96
-preds$fit + preds$se.fit * 1.96
-
+gatehouse <- df[df$AddressLine1 == "Gatehouse Cottage", ]
+link_pred <- predict(m1, gatehouse, type = "link", se.fit = FALSE)
+mu <- exp(link_pred)
+phi <- m1$scale
+p <- 1.5
+set.seed(2024)
+n_sim <- 1000
+sim_vals <- rtweedie(n = n_sim, mu = mu, phi = phi, power = p)
+pred_mean <- mean(sim_vals)
+pred_ci <- quantile(sim_vals, c(0.025, 0.975))
+c(Estimate = round(pred_mean, 0),
+  Lower = round(pred_ci[1], 0),
+  Upper = round(pred_ci[2], 0))
 
 min_Longitude <- -2.28
 max_Longitude <- -2.05
@@ -1228,7 +1271,7 @@ nu_data <- expand.grid(
   SolicitorAccount_Name = gatehouse$SolicitorAccount_Name
 )
 
-nu_data$fit <- predict(m1, newdata = nu_data)
+nu_data$fit <- predict(m1, newdata = nu_data, type = "response")
 
 map4 <- ggmap(abdn) +
   geom_tile(data = nu_data, aes(x = Longitude , y = Latitude, fill = fit), na.rm = TRUE, alpha = 0.6) +
@@ -1241,3 +1284,5 @@ map4 <- ggmap(abdn) +
        fill = "Expected\nPrice (£)") +
   sbsvoid_theme()
 map4
+
+# View(df[,c("AddressLine1", "LineTwoLocation", "Price", "expect", "low", "upp")])
